@@ -1,45 +1,37 @@
 <?php
 
-namespace VocoLabs\RollNumber\Traits;
+declare(strict_types=1);
 
-use Illuminate\Support\Str;
+namespace Hatchyu\RollNumber\Traits;
+
+use Hatchyu\RollNumber\Support\NextRollNumber;
+use Hatchyu\RollNumber\Support\RollNumberConfig;
 
 trait HasRollNumber
 {
-    public static function bootHasRollNumber()
+    public static function bootHasRollNumber(): void
     {
-        static::creating(function (self $entity) {
-            self::appendRollNumber($entity);
+        static::creating(function (self $entity): void {
+            self::assignRollNumber($entity);
         });
     }
 
-    protected function rollNumberConfig(): string|array
-    {
-        return [
-            'column' => 'roll_number',
-            'prefix' => '',
-        ];
-    }
+    abstract protected function rollNumberConfig(): RollNumberConfig;
 
-    private static function appendRollNumber(self $entity)
+    private static function assignRollNumber(self $entity): void
     {
         $config = $entity->rollNumberConfig();
 
-        $column = is_string($config) ? $config : $config['column'];
+        $column = $config->column();
 
-        $classNameSnake = str_replace('\\', '', Str::snake(get_class($entity)));
-
-        $rollNumber = roll_number($classNameSnake.':'.Str::snake($column))
-            ->prefix($config['prefix'] ?? '');
-
-        if (method_exists($entity, 'getRollGroupModelName')) {
-            $rollNumber->groupBy(
-                $entity->getRollGroupModelName(),
-                $entity->getRollGroupModelId(),
-            );
+        $currentValue = $entity->getAttribute($column);
+        if ($currentValue !== null && $currentValue !== '') {
+            return;
         }
 
+        $rollNumber = NextRollNumber::createForModel($entity, $config);
+
         // Assign roll number to the required column
-        $entity->$column = $rollNumber->get();
+        $entity->{$column} = $rollNumber->get();
     }
 }

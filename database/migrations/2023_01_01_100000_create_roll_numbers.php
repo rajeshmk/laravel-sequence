@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -8,30 +10,34 @@ return new class() extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * @return void
      */
-    public function up()
+    public function up(): void
     {
-        Schema::create('roll_types', function (Blueprint $table) {
+        Schema::create('roll_numbers', function (Blueprint $table): void {
             $table->id();
-            $table->string('name', 100)->unique();
-            $table->string('grouping_model', 250)->nullable();
-            $table->timestamps();
-        });
+            $table->string('name', 100);
 
-        Schema::create('roll_numbers', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('type_id')->constrained('roll_types');
+            // Parent model class (fully-qualified class name). In the public API this is
+            // referred to as "parentClass" (configured via RollNumberConfig::groupBy()).
+            //
+            // NOTE: We intentionally store "no grouping" as an empty string (not NULL), because
+            // NULLs don’t enforce uniqueness in composite UNIQUE indexes (most DBs treat
+            // NULL != NULL), which would allow multiple "ungrouped" rows for the same name.
+            $table->string('grouping_type', 250)->default('');
 
-            // Support string primary key (if any) of the parent/grouping model
-            $table->string('grouping_id', 100)->nullable();
+            // Parent model primary key value (stored as string). In the public API this is
+            // referred to as "parentId".
+            //
+            // NOTE: This is a string to support UUID/ULID/string PKs, and to avoid type
+            // mismatches when different models use different PK types.
+            $table->string('grouping_id', 100)->default('');
 
-            $table->unsignedBigInteger('next_number');
+            $table->unsignedBigInteger('last_number');
             $table->timestamps();
 
             $table->unique([
-                'type_id',
+                'name',
+                'grouping_type',
                 'grouping_id',
             ]);
         });
@@ -39,12 +45,9 @@ return new class() extends Migration
 
     /**
      * Reverse the migrations.
-     *
-     * @return void
      */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('roll_numbers');
-        Schema::dropIfExists('roll_types');
     }
 };

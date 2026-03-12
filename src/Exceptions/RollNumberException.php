@@ -1,0 +1,51 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Hatchyu\RollNumber\Exceptions;
+
+use RuntimeException;
+use Throwable;
+
+class RollNumberException extends RuntimeException
+{
+    public static function minimumLengthMustBeNonNegative(?Throwable $previous = null): self
+    {
+        return new self(__('Minimum length must be 0 or greater.'), 0, $previous);
+    }
+
+    public static function rolloverLimitMustBeNonNegative(?Throwable $previous = null): self
+    {
+        return new self(__('Rollover limit must be 0 or greater.'), 0, $previous);
+    }
+
+    public static function modelMustBePersisted(?Throwable $previous = null): self
+    {
+        return new self(__('Model must be persisted before generating roll number.'), 0, $previous);
+    }
+
+    public static function modelMustExist(?Throwable $previous = null): self
+    {
+        return self::modelMustBePersisted($previous);
+    }
+
+    public static function nameRequired(?Throwable $previous = null): self
+    {
+        return new self(__('Name required for the roll number type.'), 0, $previous);
+    }
+
+    public static function classNotFound(string $class, ?Throwable $previous = null): self
+    {
+        return new self(__('Class `:model` not found.', ['model' => $class]), 0, $previous);
+    }
+
+    public static function couldNotGenerate(?Throwable $previous = null): self
+    {
+        return new self(__('Could not generate roll number.'), 0, $previous);
+    }
+
+    public static function groupingModelRequired(?Throwable $previous = null): self
+    {
+        return new self(__('Model class should be specified in order to generate model based roll number.'), 0, $previous);
+    }
+}

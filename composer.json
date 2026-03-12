@@ -1,33 +1,39 @@
 {
-    "name": "vocolabs/roll-number",
-    "description": "The Vocolabs RollNumber package.",
+    "name": "hatchyu/laravel-roll-number",
+    "description": "The Hatchyu RollNumber package.",
     "license": "MIT",
     "authors": [
         {
             "name": "Raju Koyilandy",
-            "email": "mkrajesh.kdy@gmail.com"
+            "email": "hello@rajeshmk.com"
         }
     ],
     "require": {
-        "php": "^8.1||^8.2",
-        "laravel/framework": "^9.0||^10.0||^11.0||^12.0",
-        "vocolabs/contracts": "dev-main"
+        "php": "^8.3",
+        "laravel/framework": "^10.0||^11.0||^12.0"
+    },
+    "require-dev": {
+        "driftingly/rector-laravel": "^2.1",
+        "laravel/pint": "^1.28",
+        "rector/rector": "^2.3",
+        "pestphp/pest": "^2.8",
+        "pestphp/pest-plugin-laravel": "^1.4"
     },
     "autoload": {
         "psr-4": {
-            "VocoLabs\\RollNumber\\": "src"
+            "Hatchyu\\RollNumber\\": "src"
         },
         "files": [
-            "helper-functions/voco-helpers.php"
+            "helper-functions/roll-number-helpers.php"
         ]
     },
     "extra": {
         "branch-alias": {
-            "dev-master": "1.x-dev"
+            "dev-main": "2.0.x-dev"
         },
         "laravel": {
             "providers": [
-                "VocoLabs\\RollNumber\\RollNumberServiceProvider"
+                "Hatchyu\\RollNumber\\RollNumberServiceProvider"
             ]
         }
     },
