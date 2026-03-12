@@ -15,13 +15,13 @@ final class NextRollNumber
 
     private string $prefix = '';
 
-    private int $zero_padding = 0;
+    private int $zeroPadding = 0;
 
-    private string $model_name;
+    private string $modelName;
 
-    private int|string $model_id;
+    private int|string $modelId;
 
-    private int $rollover_limit;
+    private int $rolloverLimit;
 
     /**
      * PRIVATE constructor
@@ -38,15 +38,15 @@ final class NextRollNumber
     /**
      * THIS FUNCTION MUST BE CALLED FROM WITHIN A "DB TRANSACTION"
      */
-    final public static function create(string $name): static
+    public static function create(string $name): static
     {
         return static::newInstance(trim($name));
     }
 
-    public function prefix(string $prefix, int $zero_padding = 0): self
+    public function prefix(string $prefix, int $zeroPadding = 0): self
     {
         $this->prefix = $prefix;
-        $this->zero_padding = $zero_padding;
+        $this->zeroPadding = $zeroPadding;
 
         return $this;
     }
@@ -57,8 +57,8 @@ final class NextRollNumber
             throw new RuntimeException(__('Class `'.$model.'` not found.'));
         }
 
-        $this->model_name = $model;
-        $this->model_id = $id;
+        $this->modelName = $model;
+        $this->modelId = $id;
 
         return $this;
     }
@@ -66,7 +66,7 @@ final class NextRollNumber
     public function rolloverLimit(int $limit): self
     {
         if ($limit > 0) {
-            $this->rollover_limit = $limit;
+            $this->rolloverLimit = $limit;
         }
 
         return $this;
@@ -79,12 +79,12 @@ final class NextRollNumber
 
     public function groupingModel(): ?string
     {
-        return $this->model_name ?? null;
+        return $this->modelName ?? null;
     }
 
     public function groupingId(): int|string|null
     {
-        return $this->model_id ?? null;
+        return $this->modelId ?? null;
     }
 
     // -------------------------------------------------------------------------
@@ -108,7 +108,7 @@ final class NextRollNumber
         $type = RollType::where('name', $this->name)->where('grouping_model', $this->groupingModel())->first();
 
         if (null === $type) {
-            $type = $this->createRollTYpe();
+            $type = $this->createRollType();
 
             return $this->createRollNumber($type);
         }
@@ -119,7 +119,7 @@ final class NextRollNumber
             return $this->createRollNumber($type);
         }
 
-        $max_limit = $this->rollover_limit ?? null;
+        $maxLimit = $this->rolloverLimit ?? null;
 
         $sql = 'UPDATE `'.DB::getTablePrefix().'roll_numbers`'
             .' SET `updated_at` = ?,'
@@ -131,30 +131,30 @@ final class NextRollNumber
             .' WHERE `type_id` = ? AND `grouping_id` '
             .($this->groupingId() === null ? ' IS NULL ' : ' = ?');
 
-        $query_params = [
+        $queryParams = [
             date('Y-m-d H:i:s'),
-            $max_limit,
-            $max_limit,
+            $maxLimit,
+            $maxLimit,
             $type->id,
         ];
 
         if ($this->groupingId() !== null) {
-            $query_params[] = $this->groupingId();
+            $queryParams[] = $this->groupingId();
         }
 
-        DB::statement($sql, $query_params);
+        DB::statement($sql, $queryParams);
 
         // Get roll number as LAST_INSERT_ID()
-        $next_number = DB::getPdo()->lastInsertId();
+        $nextNumber = DB::getPdo()->lastInsertId();
 
-        if (empty($next_number)) {
+        if (empty($nextNumber)) {
             throw new RuntimeException(__('Could not generate roll number.'));
         }
 
-        return $next_number;
+        return $nextNumber;
     }
 
-    private function createRollTYpe(): RollType
+    private function createRollType(): RollType
     {
         $type = new RollType();
         $type->name = $this->name;
@@ -183,6 +183,6 @@ final class NextRollNumber
 
     private function withPrefix(int $number): string
     {
-        return $this->prefix.str_pad($number, $this->zero_padding, '0', STR_PAD_LEFT);
+        return $this->prefix.str_pad($number, $this->zeroPadding, '0', STR_PAD_LEFT);
     }
 }
