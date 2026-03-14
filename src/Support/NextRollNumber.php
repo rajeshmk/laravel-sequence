@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Hatchyu\RollNumber\Support;
 
-use Hatchyu\RollNumber\Exceptions\DriverException;
+use Hatchyu\RollNumber\Events\RollNumberAssigned;
 use Hatchyu\RollNumber\Exceptions\RollNumberException;
 use Hatchyu\RollNumber\Models\RollNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
+
+use function event;
 
 final class NextRollNumber
 {
@@ -46,7 +48,18 @@ final class NextRollNumber
 
     public function get(): string
     {
-        return $this->withPrefix($this->getNextNumber());
+        $number = $this->getNextNumber();
+
+        $value = $this->withPrefix($number);
+
+        // Dispatch an event so consumers can react when a roll number is assigned.
+        event(new RollNumberAssigned(
+            $this->name,
+            $value,
+            $this->config->groupByToken(),
+        ));
+
+        return $value;
     }
 
     // -------------------------------------------------------------------------
@@ -63,7 +76,7 @@ final class NextRollNumber
     private function ensureDbTransaction(): void
     {
         if (RollNumber::query()->getConnection()->transactionLevel() < 1) {
-            throw DriverException::transactionNotInitiated();
+            throw RollNumberException::transactionNotInitiated();
         }
     }
 
@@ -122,8 +135,7 @@ final class NextRollNumber
     {
         return RollNumber::query()
             ->where('name', $this->name)
-            ->where('grouping_type', $this->config->parentClass())
-            ->where('grouping_id', $this->config->parentId())
+            ->where('group_by', $this->config->groupByToken())
             ->lockForUpdate()
             ->first()
         ;
@@ -133,8 +145,7 @@ final class NextRollNumber
     {
         return RollNumber::create([
             'name' => $this->name,
-            'grouping_type' => $this->config->parentClass(),
-            'grouping_id' => $this->config->parentId(),
+            'group_by' => $this->config->groupByToken(),
             'last_number' => 1,
         ]);
     }

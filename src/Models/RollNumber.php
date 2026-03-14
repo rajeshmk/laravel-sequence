@@ -15,19 +15,9 @@ class RollNumber extends Model
      */
     protected $fillable = [
         'name',
-        'grouping_type',
-        'grouping_id',
+        'group_by',
         'last_number',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            'last_number' => 'integer',
-        ];
-    }
-
-    protected string $table = '';
 
     public function getTable(): string
     {
@@ -36,5 +26,12 @@ class RollNumber extends Model
         }
 
         return config('roll-number.table', 'roll_numbers');
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'last_number' => 'integer',
+        ];
     }
 }

@@ -14,9 +14,9 @@ final class Branch {}
 
 final class CustomerStub extends Model
 {
-    protected $table = 'customers';
-
     public $timestamps = false;
+
+    protected $table = 'customers';
 
     protected $guarded = [];
 }

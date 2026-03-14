@@ -4,20 +4,19 @@ declare(strict_types=1);
 
 namespace Hatchyu\RollNumber\Support;
 
+use Closure;
 use Hatchyu\RollNumber\Exceptions\RollNumberException;
 use Illuminate\Database\Eloquent\Model;
 
 final class RollNumberConfig
 {
-    private string $parentClass = '';
-
-    private string $parentId = '';
-
     private string $prefix = '';
 
     private int $minimumLength = 0;
 
     private int $rolloverLimit = 0;
+
+    private array $groupByKeys = [];
 
     public function __construct(
         string $prefix = '',
@@ -73,35 +72,41 @@ final class RollNumberConfig
             && $lastNumber >= $this->rolloverLimit;
     }
 
-    public function belongsTo(Model $model): self
+    public function belongsTo(Model ...$models): self
     {
-        if (! $model->exists) {
-            throw RollNumberException::modelMustExist();
-        }
-
-        return $this->groupBy(get_class($model), $model->getKey());
-    }
-
-    public function groupBy(string $parentClass, int|string $id): self
-    {
-        if (! class_exists($parentClass)) {
-            throw RollNumberException::classNotFound($parentClass);
-        }
-
-        $this->parentClass = $parentClass;
-        $this->parentId = (string) $id;
+        $this->groupBy(...$models);
 
         return $this;
     }
 
-    public function parentClass(): string
+    public function groupBy(int|string|Model ...$groups): self
     {
-        return $this->parentClass;
+        foreach ($groups as $group) {
+            $this->addGroupKey($group);
+        }
+
+        return $this;
     }
 
-    public function parentId(): string
+    public function resolveGroupKeyUsing(): Closure
     {
-        return $this->parentId;
+        return fn () => implode('_', $this->groupByKeys);
+    }
+
+    public function groupByToken(): string
+    {
+        return $this->resolveGroupKeyUsing()();
+    }
+
+    private function addGroupKey(int|string|Model $group): void
+    {
+        if ($group instanceof Model) {
+            $this->validateModel($group);
+
+            $group = $group->getKey();
+        }
+
+        $this->groupByKeys[] = (string) $group;
     }
 
     private function setPrefix(string $prefix): void
@@ -125,5 +130,17 @@ final class RollNumberConfig
         }
 
         $this->rolloverLimit = $limit;
+    }
+
+    private function validateModel(Model $model): void
+    {
+        if (! $model->exists) {
+            throw RollNumberException::modelMustExist();
+        }
+
+        // Prevent potential issues with models that use non-string keys (e.g., composite keys).
+        if (! is_string($model->getKeyName())) {
+            throw RollNumberException::modelKeyMustBeString();
+        }
     }
 }

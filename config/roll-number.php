@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Hatchyu\RollNumber\Models\RollNumber;
 
 return [
     // Table that stores roll number counters.
@@ -10,5 +11,5 @@ return [
     'connection' => env('ROLL_NUMBER_CONNECTION', null),
 
     // Model class used to represent roll numbers (can be customized if you extend it).
-    'model' => Hatchyu\RollNumber\Models\RollNumber::class,
+    'model' => RollNumber::class,
 ];

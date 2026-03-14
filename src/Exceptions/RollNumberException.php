@@ -19,6 +19,11 @@ class RollNumberException extends RuntimeException
         return new self(__('Rollover limit must be 0 or greater.'), 0, $previous);
     }
 
+    public static function modelKeyMustBeString(?Throwable $previous = null): self
+    {
+        return new self(__('Model key must be a string.'), 0, $previous);
+    }
+
     public static function modelMustBePersisted(?Throwable $previous = null): self
     {
         return new self(__('Model must be persisted before generating roll number.'), 0, $previous);
@@ -47,5 +52,10 @@ class RollNumberException extends RuntimeException
     public static function groupingModelRequired(?Throwable $previous = null): self
     {
         return new self(__('Model class should be specified in order to generate model based roll number.'), 0, $previous);
+    }
+
+    public static function transactionNotInitiated(?Throwable $previous = null): self
+    {
+        return new self(__('Database transaction not yet initiated.'), 0, $previous);
     }
 }

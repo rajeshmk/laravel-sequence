@@ -16,9 +16,7 @@ final class RollNumberAssigned
     public function __construct(
         public string $name,
         public string $value,
-        public string $groupingType = '',
-        public string|int|null $groupingId = null,
+        public ?string $groupBy = null,
         public ?Model $model = null,
-    ) {
-    }
+    ) {}
 }
