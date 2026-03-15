@@ -53,20 +53,27 @@ final class NextRollNumber
         return $this;
     }
 
-    public function next(): string
+    public function nextWithMeta(): array
     {
         $number = $this->getNextNumber();
 
-        $value = $this->withPrefix($number);
+        $meta = $number->only(['last_number', 'name', 'group_by']);
+
+        $meta['last_number'] = $this->withPrefix($meta['last_number']);
 
         // Dispatch an event so consumers can react when a roll number is assigned.
         event(new RollNumberAssigned(
             $this->name,
-            $value,
+            $meta['last_number'],
             $this->config->groupByToken(),
         ));
 
-        return $value;
+        return $meta;
+    }
+
+    public function next(): string
+    {
+        return $this->nextWithMeta()['last_number'];
     }
 
     // -------------------------------------------------------------------------
@@ -87,19 +94,19 @@ final class NextRollNumber
         }
     }
 
-    private function getNextNumber(): int
+    private function getNextNumber(): RollNumber
     {
         $rollNumber = $this->getCurrentRollNumber();
 
         if ($rollNumber->wasRecentlyCreated) {
-            return $rollNumber->last_number;
+            return $rollNumber;
         }
 
         $lastNumber = $this->calculateNextNumber($rollNumber);
 
         $rollNumber->update(['last_number' => $lastNumber]);
 
-        return $lastNumber;
+        return $rollNumber;
     }
 
     private function getCurrentRollNumber(): RollNumber
