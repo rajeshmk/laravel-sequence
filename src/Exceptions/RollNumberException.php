@@ -39,21 +39,6 @@ class RollNumberException extends RuntimeException
         return new self(__('Name required for the roll number type.'), 0, $previous);
     }
 
-    public static function classNotFound(string $class, ?Throwable $previous = null): self
-    {
-        return new self(__('Class `:model` not found.', ['model' => $class]), 0, $previous);
-    }
-
-    public static function couldNotGenerate(?Throwable $previous = null): self
-    {
-        return new self(__('Could not generate roll number.'), 0, $previous);
-    }
-
-    public static function groupingModelRequired(?Throwable $previous = null): self
-    {
-        return new self(__('Model class should be specified in order to generate model based roll number.'), 0, $previous);
-    }
-
     public static function transactionNotInitiated(?Throwable $previous = null): self
     {
         return new self(__('Database transaction not yet initiated.'), 0, $previous);

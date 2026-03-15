@@ -32,6 +32,6 @@ trait HasRollNumber
         $rollNumber = NextRollNumber::createForModel($entity, $config);
 
         // Assign roll number to the required column
-        $entity->{$column} = $rollNumber->get();
+        $entity->{$column} = $rollNumber->next();
     }
 }

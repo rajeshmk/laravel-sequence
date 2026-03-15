@@ -21,11 +21,7 @@ class RollNumber extends Model
 
     public function getTable(): string
     {
-        if ($this->table !== '') {
-            return $this->table;
-        }
-
-        return config('roll-number.table', 'roll_numbers');
+        return $this->table ?? config('roll-number.table', 'roll_numbers');
     }
 
     protected function casts(): array

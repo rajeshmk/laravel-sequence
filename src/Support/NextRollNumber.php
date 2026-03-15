@@ -46,7 +46,14 @@ final class NextRollNumber
         return new self($name, $config);
     }
 
-    public function get(): string
+    public function groupBy(int|string|Model ...$groups): self
+    {
+        $this->config->groupBy(...$groups);
+
+        return $this;
+    }
+
+    public function next(): string
     {
         $number = $this->getNextNumber();
 

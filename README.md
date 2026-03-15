@@ -1,6 +1,6 @@
 # Roll Number (Laravel Package)
 
-Generate sequential “roll numbers” (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per model/id), configurable prefixes and minimum length, rollover limits, and a convenient `HasRollNumber` Eloquent trait to auto-assign values on creation.
+Generate sequential “roll numbers” (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and minimum length, rollover limits, and a convenient `HasRollNumber` Eloquent trait to auto-assign values on creation.
 
 **Quick summary:** use the `roll_number()` helper inside a DB transaction to generate numbers, or add the `HasRollNumber` trait to models to auto-assign a column on `creating`.
 
@@ -24,9 +24,15 @@ Run your migrations (the package auto-loads its migrations via the service provi
 php artisan migrate
 ```
 
+Optional: publish the config file if you want to customize table/connection/model:
+
+```bash
+php artisan vendor:publish --tag=config --provider="Hatchyu\\RollNumber\\RollNumberServiceProvider"
+```
+
 ## Tables
 
-The package creates a `roll_numbers` table which stores the current `last_number` per `(name, grouping_type, grouping_id)` tuple. Grouping fields are optional and are stored as empty strings when unused.
+The package creates a `roll_numbers` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
 
 ## Usage
 
@@ -40,7 +46,7 @@ Generate an incrementing sequence ("1", "2", "3", ...):
 use Illuminate\Support\Facades\DB;
 
 $value = DB::transaction(function () {
-    return roll_number('sequence_number')->get();
+    return roll_number('sequence_number')->next();
 });
 
 // returns "1", then "2", etc.
@@ -52,7 +58,7 @@ Provide a prefix and a minimum numeric length (padded with zeros):
 
 ```php
 $value = DB::transaction(function () {
-    return roll_number('category_code', 'C', 3)->get(); // "C001"
+    return roll_number('category_code', 'C', 3)->next(); // "C001"
 });
 ```
 
@@ -64,7 +70,7 @@ If you want codes like `202601`, `202602`, ... you can pass dynamic prefix value
 
 ```php
 $value = DB::transaction(function () {
-    return roll_number('batch_code', date('Y'), 2)->get();
+    return roll_number('batch_code', date('Y'), 2)->next();
 });
 ```
 
@@ -72,16 +78,23 @@ Note: rollover behavior for prefixed dynamic values is controlled by grouping. I
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
 
-Sometimes you want separate counters per parent entity. The package supports grouping by arbitrary type + id. Example: reset sequence per `Branch`:
+Sometimes you want separate counters per group of values (branch, year, tenant, etc.). The package supports grouping by multiple keys or models. Example: reset sequence per branch and year:
 
 ```php
-// When generating directly
-DB::transaction(function () use ($branchId) {
-    return roll_number('customer_code')->groupBy(Branch::class, $branchId)->get();
+// When generating directly with multiple group keys
+DB::transaction(function () use ($branchId, $year) {
+    return roll_number('customer_code')
+        ->groupBy($branchId, $year)
+        ->next();
 });
 
 // When used via HasRollNumber, configure grouping in RollNumberConfig (example below)
 ```
+
+Notes:
+
+- You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
+- Models must exist in the database before being used for grouping.
 
 ### 5) Auto-assign on Eloquent models (`HasRollNumber`)
 
@@ -103,8 +116,8 @@ class CustomerProfile extends Model
             'prefix' => 'CU',              // prefix string
             'minimumLength' => 3,          // numeric padding length
         ])
-        // optional: make sequence per-branch
-        ->groupBy(Branch::class, $this->branch_id);
+        // optional: make sequence per-branch (or per branch+year, etc.)
+        ->groupBy($this->branch_id);
     }
 }
 ```
@@ -119,19 +132,21 @@ Behavior notes for trait usage:
 ## API reference
 
 - Helper: `roll_number(string $name, string $prefix = '', int $minimumLength = 0)` — returns a `NextRollNumber` instance.
-- Call `->groupBy(string $type, mixed $id)` on the returned object to scope the counter.
-- Call `->get(): string` to reserve and return the next roll value.
+- Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
+- Call `->next(): string` to reserve and return the next roll value.
 
 Example:
 
 ```php
-$next = roll_number('orders', 'ORD-', 6)->groupBy(Customer::class, $customerId)->get();
+$next = roll_number('orders', 'ORD-', 6)
+    ->groupBy($customerId, date('Y'))
+    ->next();
 ```
 
 ## Concurrency and transactions
 
 - Always call generation inside `DB::transaction()`.
-- The package uses `SELECT ... FOR UPDATE` to lock the row that stores `last_number` for a given `(name, grouping_type, grouping_id)`.
+- The package uses `SELECT ... FOR UPDATE` to lock the row that stores `last_number` for a given `(name, group_by)`.
 - Keep transactions short to reduce lock contention.
 
 ## Rollover and limits
