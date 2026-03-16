@@ -19,6 +19,11 @@ class RollNumberServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../config/roll-number.php' => config_path('roll-number.php'),
             ], 'config');
+
+            $this->publishes([
+                __DIR__ . '/../database/migrations/2023_01_01_100000_create_roll_numbers.php'
+                    => database_path('migrations/2023_01_01_100000_create_roll_numbers.php'),
+            ], 'roll-number-migrations');
         }
     }
 

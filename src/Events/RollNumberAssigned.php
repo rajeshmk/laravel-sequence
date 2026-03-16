@@ -14,9 +14,10 @@ final class RollNumberAssigned
     use SerializesModels;
 
     public function __construct(
-        public string $name,
-        public string $value,
-        public ?string $groupBy = null,
-        public ?Model $model = null,
+        public readonly string $name,
+        public readonly int $rawNumber,
+        public readonly string $sequenceNumber,
+        public readonly ?string $groupByKey = null,
+        public readonly ?Model $model = null,
     ) {}
 }

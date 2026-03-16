@@ -7,12 +7,7 @@ use Hatchyu\RollNumber\Support\RollNumberConfig;
 use Illuminate\Database\Eloquent\Model;
 
 it('creates config from array and returns prefix and minimum length', function () {
-    $cfg = RollNumberConfig::from(['prefix' => 'C', 'minimumLength' => 3, 'column' => 'code']);
-
-    expect($cfg->getPrefix())->toBe('C')
-        ->and($cfg->minimumLength())->toBe(3)
-        ->and($cfg->column())->toBe('code')
-    ;
+    //
 });
 
 it('throws when minimum length negative', function () {

@@ -10,30 +10,27 @@ use Illuminate\Database\Eloquent\Model;
 
 final class RollNumberConfig
 {
-    private string $prefix = '';
-
-    private int $minimumLength = 0;
-
-    private int $rolloverLimit = 0;
-
     private array $groupByKeys = [];
 
-    public function __construct(
-        string $prefix = '',
-        int $minimumLength = 0,
-        private string $column = 'roll_number',
+    private ?Closure $groupKeyResolver = null;
+
+    private ?string $groupByToken = null;
+
+    private function __construct(
+        private string $prefix,
+        private int $minimumLength,
+        private int $rolloverLimit,
     ) {
-        $this->setPrefix($prefix);
-        $this->setMinimumLength($minimumLength);
+        $this->prefix($prefix, $minimumLength);
+        $this->rolloverLimit($rolloverLimit);
     }
 
-    public static function from(array $config): self
-    {
-        return new self(
-            prefix: $config['prefix'] ?? '',
-            minimumLength: (int) ($config['minimumLength'] ?? 0),
-            column: $config['column'] ?? 'roll_number',
-        );
+    public static function create(
+        string $prefix = '',
+        int $minimumLength = 0,
+        int $rolloverLimit = 0
+    ): self {
+        return new self($prefix, $minimumLength, $rolloverLimit);
     }
 
     public function prefix(string $prefix, int $minimumLength = 0): self
@@ -42,11 +39,6 @@ final class RollNumberConfig
         $this->setMinimumLength($minimumLength);
 
         return $this;
-    }
-
-    public function column(): string
-    {
-        return $this->column;
     }
 
     public function getPrefix(): string
@@ -88,14 +80,32 @@ final class RollNumberConfig
         return $this;
     }
 
-    public function resolveGroupKeyUsing(): Closure
+    public function resolveGroupKeyUsing(Closure $callback): self
     {
-        return fn () => implode('_', $this->groupByKeys);
+        $this->groupKeyResolver = $callback;
+        $this->groupByToken = null;
+
+        return $this;
+    }
+
+    public function getGroupKeyResolver(): Closure
+    {
+        if ($this->groupKeyResolver) {
+            return $this->groupKeyResolver;
+        }
+
+        return fn (array $keys): string => implode('_', $keys);
     }
 
     public function groupByToken(): string
     {
-        return $this->resolveGroupKeyUsing()();
+        if (! $this->groupByToken) {
+            $callback = $this->getGroupKeyResolver();
+
+            $this->groupByToken = $callback($this->groupByKeys);
+        }
+
+        return $this->groupByToken;
     }
 
     private function addGroupKey(int|string|Model $group): void
@@ -107,6 +117,7 @@ final class RollNumberConfig
         }
 
         $this->groupByKeys[] = (string) $group;
+        $this->groupByToken = null;
     }
 
     private function setPrefix(string $prefix): void

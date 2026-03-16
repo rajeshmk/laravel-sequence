@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Hatchyu\RollNumber\Support;
 
+use Closure;
 use Hatchyu\RollNumber\Events\RollNumberAssigned;
 use Hatchyu\RollNumber\Exceptions\RollNumberException;
-use Hatchyu\RollNumber\Models\RollNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
@@ -30,18 +30,14 @@ final class NextRollNumber
 
     public static function create(string $name, string $prefix = '', int $minimumLength = 0): static
     {
-        $config = new RollNumberConfig(
-            prefix: $prefix,
-            minimumLength: $minimumLength
-        );
+        $config = RollNumberConfig::create($prefix, $minimumLength);
 
         return new self(trim($name), $config);
     }
 
-    public static function createForModel(Model $model, RollNumberConfig $config): static
+    public static function createForModel(Model $model, string $column, RollNumberConfig $config): static
     {
-        $name = Str::snake($model->getTable()) . '.'
-            . Str::snake($config->column());
+        $name = Str::snake($model->getTable()) . '.' . Str::snake($column);
 
         return new self($name, $config);
     }
@@ -53,27 +49,22 @@ final class NextRollNumber
         return $this;
     }
 
-    public function nextWithMeta(): array
+    public function config(Closure $callback): self
     {
-        $number = $this->getNextNumber();
+        $callback($this->config);
 
-        $meta = $number->only(['last_number', 'name', 'group_by']);
-
-        $meta['last_number'] = $this->withPrefix($meta['last_number']);
-
-        // Dispatch an event so consumers can react when a roll number is assigned.
-        event(new RollNumberAssigned(
-            $this->name,
-            $meta['last_number'],
-            $this->config->groupByToken(),
-        ));
-
-        return $meta;
+        return $this;
     }
 
     public function next(): string
     {
-        return $this->nextWithMeta()['last_number'];
+        $rollNumber = $this->getNextNumber();
+
+        $sequenceNumber = $this->withPrefix($rollNumber->last_number);
+
+        $this->dispatchRollNumberAssignedEvent($sequenceNumber, $rollNumber);
+
+        return $sequenceNumber;
     }
 
     // -------------------------------------------------------------------------
@@ -89,12 +80,12 @@ final class NextRollNumber
 
     private function ensureDbTransaction(): void
     {
-        if (RollNumber::query()->getConnection()->transactionLevel() < 1) {
+        if ($this->rollNumberModel()->getConnection()->transactionLevel() < 1) {
             throw RollNumberException::transactionNotInitiated();
         }
     }
 
-    private function getNextNumber(): RollNumber
+    private function getNextNumber(): Model
     {
         $rollNumber = $this->getCurrentRollNumber();
 
@@ -109,7 +100,7 @@ final class NextRollNumber
         return $rollNumber;
     }
 
-    private function getCurrentRollNumber(): RollNumber
+    private function getCurrentRollNumber(): Model
     {
         $rollNumber = $this->selectForUpdate();
         if ($rollNumber !== null) {
@@ -134,7 +125,7 @@ final class NextRollNumber
         return $rollNumber;
     }
 
-    private function calculateNextNumber(RollNumber $rollNumber): int
+    private function calculateNextNumber(Model $rollNumber): int
     {
         $lastNumber = $rollNumber->last_number;
 
@@ -145,9 +136,9 @@ final class NextRollNumber
         return $lastNumber + 1;
     }
 
-    private function selectForUpdate(): ?RollNumber
+    private function selectForUpdate(): ?Model
     {
-        return RollNumber::query()
+        return $this->rollNumberQuery()
             ->where('name', $this->name)
             ->where('group_by', $this->config->groupByToken())
             ->lockForUpdate()
@@ -155,9 +146,9 @@ final class NextRollNumber
         ;
     }
 
-    private function createFirstNumber(): RollNumber
+    private function createFirstNumber(): Model
     {
-        return RollNumber::create([
+        return $this->rollNumberQuery()->create([
             'name' => $this->name,
             'group_by' => $this->config->groupByToken(),
             'last_number' => 1,
@@ -190,5 +181,43 @@ final class NextRollNumber
             || str_contains($message, 'unique constraint')
             || str_contains($message, 'duplicate key')
             || str_contains($message, 'unique violation');
+    }
+
+    private function dispatchRollNumberAssignedEvent(string $sequenceNumber, Model $rollNumber): void
+    {
+        // Dispatch an event so consumers can react when a roll number is assigned.
+        event(new RollNumberAssigned(
+            name: $rollNumber->name,
+            rawNumber: $rollNumber->last_number,
+            sequenceNumber: $sequenceNumber,
+            groupByKey: $rollNumber->group_by,
+        ));
+    }
+
+    /**
+     * @return class-string<Model>
+     */
+    private function rollNumberModelClass(): string
+    {
+        return config('roll-number.model', \Hatchyu\RollNumber\Models\RollNumber::class);
+    }
+
+    private function rollNumberModel(): Model
+    {
+        $modelClass = $this->rollNumberModelClass();
+        /** @var Model $model */
+        $model = new $modelClass();
+
+        $connection = config('roll-number.connection');
+        if (is_string($connection) && $connection !== '') {
+            $model->setConnection($connection);
+        }
+
+        return $model;
+    }
+
+    private function rollNumberQuery()
+    {
+        return $this->rollNumberModel()->newQuery();
     }
 }

@@ -30,13 +30,22 @@ Optional: publish the config file if you want to customize table/connection/mode
 php artisan vendor:publish --tag=config --provider="Hatchyu\\RollNumber\\RollNumberServiceProvider"
 ```
 
+Optional: publish the migration if you want to customize the table name or columns:
+
+```bash
+php artisan vendor:publish --tag=roll-number-migrations --provider="Hatchyu\\RollNumber\\RollNumberServiceProvider"
+```
+
 ## Tables
 
 The package creates a `roll_numbers` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
 
+If you use a custom model via `config('roll-number.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package reads/writes those attributes directly, so ensure they are fillable or guarded appropriately.
+
 ## Usage
 
 Important: roll number generation must run inside a DB transaction; the package will throw an exception if called outside one.
+Use `->next()` to reserve and return the next value.
 
 ### 1) Simple sequential numbers
 
@@ -98,41 +107,62 @@ Notes:
 
 ### 5) Auto-assign on Eloquent models (`HasRollNumber`)
 
-Add the `HasRollNumber` trait to your model and provide a `rollNumberConfig()` method returning a `RollNumberConfig` instance. Example:
+Add the `HasRollNumber` trait to your model and provide a `sequenceColumns()` method that returns a `SequenceColumnCollection`. This supports one or many columns. Example:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
 use Hatchyu\RollNumber\Traits\HasRollNumber;
 use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Hatchyu\RollNumber\Support\SequenceColumnCollection;
 
 class CustomerProfile extends Model
 {
     use HasRollNumber;
 
-    protected function rollNumberConfig(): RollNumberConfig
+    protected function sequenceColumns(): SequenceColumnCollection
     {
-        return RollNumberConfig::from([
-            'column' => 'customer_code',   // column to fill
-            'prefix' => 'CU',              // prefix string
-            'minimumLength' => 3,          // numeric padding length
-        ])
-        // optional: make sequence per-branch (or per branch+year, etc.)
-        ->groupBy($this->branch_id);
+        return SequenceColumnCollection::collection()
+            ->column(
+                'customer_code',
+                RollNumberConfig::create('CU', 3)
+                    // optional: make sequence per-branch (or per branch+year, etc.)
+                    ->groupBy($this->branch_id)
+            );
     }
 }
 ```
 
 Behavior notes for trait usage:
 
-- Default column: `roll_number` if not supplied in config.
 - The roll type name is derived from the model class + column name (used as the `name` key in `roll_numbers`).
 - Generation runs during the model `creating` hook — your create flow must be in a DB transaction, otherwise generation will throw.
 - If the column already has a non-empty value, the trait will not overwrite it.
+
+Multiple columns example:
+
+```php
+protected function sequenceColumns(): SequenceColumnCollection
+{
+    return SequenceColumnCollection::collection()
+        ->column(
+            'admission_number',
+            RollNumberConfig::create('ADM', 3)
+        )
+        ->column(
+            'roll_number',
+            RollNumberConfig::create()
+                ->resolveGroupKeyUsing(function () {
+                    return $this->tenantId() . '_' . $this->academic_year . '_' . $this->class_id;
+                })
+        );
+}
+```
 
 ## API reference
 
 - Helper: `roll_number(string $name, string $prefix = '', int $minimumLength = 0)` — returns a `NextRollNumber` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
+- Call `->config(fn (RollNumberConfig $config) => ...)` to customize the configuration (rollover limit, grouping, prefix, etc.).
 - Call `->next(): string` to reserve and return the next roll value.
 
 Example:
@@ -143,15 +173,53 @@ $next = roll_number('orders', 'ORD-', 6)
     ->next();
 ```
 
+Example with config callback:
+
+```php
+use Hatchyu\RollNumber\Support\RollNumberConfig;
+
+$next = roll_number('rollover_test', '', 2)
+    ->config(function (RollNumberConfig $config) {
+        $config->rolloverLimit(7)
+            ->groupBy(date('Y'));
+    })
+    ->next();
+```
+
+Note: `config()` is just a convenience. You can still chain `groupBy()` or other methods before/after it.
+
 ## Concurrency and transactions
 
 - Always call generation inside `DB::transaction()`.
 - The package uses `SELECT ... FOR UPDATE` to lock the row that stores `last_number` for a given `(name, group_by)`.
 - Keep transactions short to reduce lock contention.
+- If you configured a custom connection in `config/roll-number.php`, make sure to use that same connection for the surrounding transaction.
+- Ensure your database engine supports row-level locking in transactions (e.g., InnoDB on MySQL).
 
 ## Rollover and limits
 
-The package supports rolling over or setting limits via `RollNumberConfig` (see `->rolloverLimit()` on the config). Consult the config API in `src/Support/RollNumberConfig.php` for exact methods and options.
+The package supports rolling over or setting limits via `RollNumberConfig` (see `->rolloverLimit()` on the config). When the limit is reached, the next number resets to `1`. Consult the config API in `src/Support/RollNumberConfig.php` for exact methods and options.
+
+## Customization (Config)
+
+After publishing the config file, you can customize:
+
+- `table`: The name of the roll number counters table.
+- `connection`: The database connection used by the roll number model (use the same connection for your surrounding transaction).
+- `model`: The Eloquent model class for roll numbers. Must extend `Model` and use a table with `name`, `group_by`, and `last_number` columns.
+
+## Events
+
+The package dispatches a `Hatchyu\RollNumber\Events\RollNumberAssigned` event whenever a number is reserved:
+
+```php
+use Hatchyu\RollNumber\Events\RollNumberAssigned;
+use Illuminate\Support\Facades\Event;
+
+Event::listen(RollNumberAssigned::class, function (RollNumberAssigned $event) {
+    // $event->name, $event->rawNumber, $event->sequenceNumber, $event->groupByKey
+});
+```
 
 ## Testing
 
