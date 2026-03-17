@@ -1,188 +1,271 @@
 <?php
 
-namespace VocoLabs\RollNumber\Support;
+declare(strict_types=1);
 
-use Illuminate\Support\Facades\DB;
-use RuntimeException;
-use Vocolabs\Contracts\Database\DriverException;
-use VocoLabs\RollNumber\Models\RollNumber;
-use VocoLabs\RollNumber\Models\RollType;
+namespace Hatchyu\RollNumber\Support;
 
-// @TODO - use custom exception class instead of `RuntimeException`
-final class NextRollNumber
+use Closure;
+use Hatchyu\RollNumber\Events\RollNumberAssigned;
+use Hatchyu\RollNumber\Exceptions\RollNumberConfigException;
+use Hatchyu\RollNumber\Exceptions\RollNumberTransactionException;
+use Hatchyu\RollNumber\Exceptions\RollNumberValidationException;
+use Hatchyu\RollNumber\Models\RollNumber;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Str;
+
+use function event;
+
+final readonly class NextRollNumber
 {
-    private string $name;
+    private const int NAME_MAX_LENGTH = 100;
 
-    private string $prefix = '';
-
-    private int $zero_padding = 0;
-
-    private string $model_name;
-
-    private int|string $model_id;
-
-    private int $rollover_limit;
+    private const int GROUP_BY_MAX_LENGTH = 250;
 
     /**
-     * PRIVATE constructor
+     * Private constructor.
+     *
+     * Roll number generation must be executed from within a DB transaction.
      */
-    private function __construct(string $name)
-    {
-        if (trim($name) === '') {
-            throw new RuntimeException(__('Name required for the roll number type.'));
-        }
-
-        $this->name = trim($name);
+    private function __construct(
+        private string $name,
+        private RollNumberConfig $config,
+    ) {
+        $this->ensureName($name);
+        $this->ensureDbTransaction();
     }
 
-    /**
-     * THIS FUNCTION MUST BE CALLED FROM WITHIN A "DB TRANSACTION"
-     */
-    final public static function create(string $name): static
+    public static function create(string $name, string $prefix = '', int $minimumLength = 0): static
     {
-        return static::newInstance(trim($name));
+        $config = RollNumberConfig::create($prefix, $minimumLength);
+
+        return new self(trim($name), $config);
     }
 
-    public function prefix(string $prefix, int $zero_padding = 0): self
+    public static function createForModel(Model $model, string $column, RollNumberConfig $config): static
     {
-        $this->prefix = $prefix;
-        $this->zero_padding = $zero_padding;
+        $name = Str::snake($model->getTable()) . '.' . Str::snake($column);
+
+        return new self($name, $config);
+    }
+
+    public function groupBy(int|string|Model ...$groups): self
+    {
+        $this->config->groupBy(...$groups);
 
         return $this;
     }
 
-    public function groupBy(string $model, int|string $id): self
+    public function config(Closure $callback): self
     {
-        if (! class_exists($model)) {
-            throw new RuntimeException(__('Class `'.$model.'` not found.'));
-        }
-
-        $this->model_name = $model;
-        $this->model_id = $id;
+        $callback($this->config);
 
         return $this;
     }
 
-    public function rolloverLimit(int $limit): self
+    public function next(): string
     {
-        if ($limit > 0) {
-            $this->rollover_limit = $limit;
-        }
+        $rollNumber = $this->getNextNumber();
 
-        return $this;
-    }
+        $sequenceNumber = $this->withPrefix($rollNumber->last_number);
 
-    public function get(): string
-    {
-        return $this->withPrefix($this->getNextNumber());
-    }
+        $this->dispatchRollNumberAssignedEvent($sequenceNumber, $rollNumber);
 
-    public function groupingModel(): ?string
-    {
-        return $this->model_name ?? null;
-    }
-
-    public function groupingId(): int|string|null
-    {
-        return $this->model_id ?? null;
+        return $sequenceNumber;
     }
 
     // -------------------------------------------------------------------------
     // Private functions
     // -------------------------------------------------------------------------
 
-    private static function newInstance(string $name): static
+    private function ensureName(string $name): void
     {
-        return new static($name);
+        if ($name === '') {
+            throw RollNumberValidationException::nameRequired();
+        }
+
+        if ($this->isStrictModeEnabled() && strlen($name) > self::NAME_MAX_LENGTH) {
+            throw RollNumberValidationException::nameTooLong(self::NAME_MAX_LENGTH);
+        }
     }
 
-    private function getNextNumber(): int
+    private function ensureDbTransaction(): void
     {
-        // Get PDO instance
-        $connection = DB::getPdo();
+        $connection = $this->rollNumberModel()->getConnection();
+        if ($connection->transactionLevel() < 1) {
+            $connectionName = $connection->getName();
+            if (is_string($connectionName) && $connectionName !== '') {
+                throw RollNumberTransactionException::transactionNotInitiatedOnConnection($connectionName);
+            }
 
-        if ($connection instanceof \PDO && true !== $connection->inTransaction()) {
-            throw new DriverException(__('Database transaction not yet initiated.'));
+            throw RollNumberTransactionException::transactionNotInitiated();
         }
-
-        $type = RollType::where('name', $this->name)->where('grouping_model', $this->groupingModel())->first();
-
-        if (null === $type) {
-            $type = $this->createRollTYpe();
-
-            return $this->createRollNumber($type);
-        }
-
-        $number = RollNumber::where('type_id', $type->id)->where('grouping_id', $this->groupingId())->first();
-
-        if (null === $number) {
-            return $this->createRollNumber($type);
-        }
-
-        $max_limit = $this->rollover_limit ?? null;
-
-        $sql = 'UPDATE `'.DB::getTablePrefix().'roll_numbers`'
-            .' SET `updated_at` = ?,'
-            .' `next_number` = CASE'
-            .' WHEN (? IS NULL OR ? > `next_number`)'
-            .'   THEN (LAST_INSERT_ID(`next_number`) + 1)'
-            .' ELSE (LAST_INSERT_ID(`next_number`) - `next_number` + 1)'
-            .' END'
-            .' WHERE `type_id` = ? AND `grouping_id` '
-            .($this->groupingId() === null ? ' IS NULL ' : ' = ?');
-
-        $query_params = [
-            date('Y-m-d H:i:s'),
-            $max_limit,
-            $max_limit,
-            $type->id,
-        ];
-
-        if ($this->groupingId() !== null) {
-            $query_params[] = $this->groupingId();
-        }
-
-        DB::statement($sql, $query_params);
-
-        // Get roll number as LAST_INSERT_ID()
-        $next_number = DB::getPdo()->lastInsertId();
-
-        if (empty($next_number)) {
-            throw new RuntimeException(__('Could not generate roll number.'));
-        }
-
-        return $next_number;
     }
 
-    private function createRollTYpe(): RollType
+    private function ensureGroupByTokenLength(): void
     {
-        $type = new RollType();
-        $type->name = $this->name;
-        $type->grouping_model = $this->groupingModel();
-
-        $type->save();
-
-        return $type;
-    }
-
-    private function createRollNumber(RollType $type): int
-    {
-        if ($this->groupingId() && ! $type->grouping_model) {
-            throw new RuntimeException(__('Model class should be specified in order to generate model based roll number.'));
+        if (! $this->isStrictModeEnabled()) {
+            return;
         }
 
-        $number = new RollNumber();
-        $number->type_id = $type->id;
-        $number->grouping_id = $this->groupingId();
-        $number->next_number = 2;
+        $token = $this->config->groupByToken();
+        if (strlen($token) > self::GROUP_BY_MAX_LENGTH) {
+            throw RollNumberValidationException::groupByTokenTooLong(self::GROUP_BY_MAX_LENGTH);
+        }
+    }
 
-        $number->save();
+    private function isStrictModeEnabled(): bool
+    {
+        return (bool) config('roll-number.strict_mode', true);
+    }
 
-        return 1;
+    private function getNextNumber(): Model
+    {
+        $rollNumber = $this->getCurrentRollNumber();
+
+        if ($rollNumber->wasRecentlyCreated) {
+            return $rollNumber;
+        }
+
+        $lastNumber = $this->calculateNextNumber($rollNumber);
+
+        $rollNumber->forceFill(['last_number' => $lastNumber]);
+        $rollNumber->save();
+
+        return $rollNumber;
+    }
+
+    private function getCurrentRollNumber(): Model
+    {
+        $this->ensureGroupByTokenLength();
+
+        $rollNumber = $this->selectForUpdate();
+        if ($rollNumber !== null) {
+            return $rollNumber;
+        }
+
+        try {
+            return $this->createFirstNumber();
+        } catch (QueryException $exception) {
+            // This can happen under concurrency: two transactions both observe "no row"
+            // and race to create the first one. The UNIQUE index ensures correctness.
+            if (! $this->isUniqueConstraintViolation($exception)) {
+                throw $exception;
+            }
+
+            $rollNumber = $this->selectForUpdate();
+            if ($rollNumber === null) {
+                throw $exception;
+            }
+        }
+
+        return $rollNumber;
+    }
+
+    private function calculateNextNumber(Model $rollNumber): int
+    {
+        $lastNumber = $rollNumber->last_number;
+
+        if ($this->config->isMaxLimitReached($lastNumber)) {
+            return 1;
+        }
+
+        return $lastNumber + 1;
+    }
+
+    private function selectForUpdate(): ?Model
+    {
+        return $this->rollNumberQuery()
+            ->where('name', $this->name)
+            ->where('group_by', $this->config->groupByToken())
+            ->lockForUpdate()
+            ->first()
+        ;
+    }
+
+    private function createFirstNumber(): Model
+    {
+        $rollNumber = $this->rollNumberModel();
+        $rollNumber->forceFill([
+            'name' => $this->name,
+            'group_by' => $this->config->groupByToken(),
+            'last_number' => 1,
+        ]);
+        $rollNumber->save();
+
+        return $rollNumber;
     }
 
     private function withPrefix(int $number): string
     {
-        return $this->prefix.str_pad($number, $this->zero_padding, '0', STR_PAD_LEFT);
+        return $this->config->getPrefix() . $this->paddedNumber($number);
+    }
+
+    private function paddedNumber(int $number): string
+    {
+        $padLength = $this->config->minimumLength();
+
+        return $padLength > 0
+            ? str_pad((string) $number, $padLength, '0', STR_PAD_LEFT)
+            : (string) $number;
+    }
+
+    private function isUniqueConstraintViolation(QueryException $exception): bool
+    {
+        $code = (string) $exception->getCode();
+        $message = strtolower($exception->getMessage());
+
+        // Cross-driver best-effort detection.
+        // - SQLSTATE[23000] is "integrity constraint violation" (MySQL, SQLite, etc.)
+        // - Postgres: "duplicate key value violates unique constraint"
+        return $code === '23000'
+            || str_contains($message, 'unique constraint')
+            || str_contains($message, 'duplicate key')
+            || str_contains($message, 'unique violation');
+    }
+
+    private function dispatchRollNumberAssignedEvent(string $sequenceNumber, Model $rollNumber): void
+    {
+        // Dispatch an event so consumers can react when a roll number is assigned.
+        event(new RollNumberAssigned(
+            name: $rollNumber->name,
+            rawNumber: $rollNumber->last_number,
+            sequenceNumber: $sequenceNumber,
+            groupByKey: $rollNumber->group_by,
+        ));
+    }
+
+    /**
+     * @return class-string<Model>
+     */
+    private function rollNumberModelClass(): string
+    {
+        $class = config('roll-number.model', RollNumber::class);
+
+        if (! is_string($class) || $class === '' || ! class_exists($class) || ! is_subclass_of($class, Model::class)) {
+            throw RollNumberConfigException::invalidModelClass((string) $class);
+        }
+
+        return $class;
+    }
+
+    private function rollNumberModel(): Model
+    {
+        $modelClass = $this->rollNumberModelClass();
+
+        /** @var Model $model */
+        $model = new $modelClass();
+
+        $connection = config('roll-number.connection');
+        if (is_string($connection) && $connection !== '') {
+            $model->setConnection($connection);
+        }
+
+        return $model;
+    }
+
+    private function rollNumberQuery()
+    {
+        return $this->rollNumberModel()->newQuery();
     }
 }

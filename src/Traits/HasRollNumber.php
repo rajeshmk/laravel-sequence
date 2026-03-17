@@ -1,45 +1,37 @@
 <?php
 
-namespace VocoLabs\RollNumber\Traits;
+declare(strict_types=1);
 
-use Illuminate\Support\Str;
+namespace Hatchyu\RollNumber\Traits;
+
+use Hatchyu\RollNumber\Support\NextRollNumber;
+use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Hatchyu\RollNumber\Support\SequenceColumnCollection;
 
 trait HasRollNumber
 {
-    public static function bootHasRollNumber()
+    public static function bootHasRollNumber(): void
     {
-        static::creating(function (self $entity) {
-            self::appendRollNumber($entity);
+        static::creating(function (self $entity): void {
+            foreach ($entity->sequenceColumns()->get() as $column => $config) {
+                self::fillSequenceNumber($entity, $column, $config);
+            }
         });
     }
 
-    protected function rollNumberConfig(): string|array
+    abstract protected function sequenceColumns(): SequenceColumnCollection;
+
+    private static function fillSequenceNumber(self $entity, string $column, RollNumberConfig $config): void
     {
-        return [
-            'column' => 'roll_number',
-            'prefix' => '',
-        ];
-    }
+        $currentValue = $entity->getAttribute($column);
 
-    private static function appendRollNumber(self $entity)
-    {
-        $config = $entity->rollNumberConfig();
-
-        $column = is_string($config) ? $config : $config['column'];
-
-        $class_name_snake = str_replace('\\', '', Str::snake(get_class($entity)));
-
-        $roll_number = roll_number($class_name_snake.':'.Str::snake($column))
-            ->prefix($config['prefix'] ?? '');
-
-        if (method_exists($entity, 'getRollGroupModelName')) {
-            $roll_number->groupBy(
-                $entity->getRollGroupModelName(),
-                $entity->getRollGroupModelId(),
-            );
+        if ($currentValue !== null && $currentValue !== '') {
+            return;
         }
 
+        $rollNumber = NextRollNumber::createForModel($entity, $column, $config);
+
         // Assign roll number to the required column
-        $entity->$column = $roll_number->get();
+        $entity->{$column} = $rollNumber->next();
     }
 }
