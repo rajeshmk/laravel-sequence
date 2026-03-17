@@ -1,6 +1,6 @@
 # Sequence (Laravel Package)
 
-Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and minimum length, rollover limits, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
+Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and pad length, min/max ranges, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
 
 **Quick summary:** use the `sequence()` helper inside a DB transaction to generate numbers, or add the `HasSequence` trait to models to auto-assign a column on `creating`.
 
@@ -69,9 +69,9 @@ $value = DB::transaction(function () {
 // returns "1", then "2", etc.
 ```
 
-### 2) Prefix and minimum length
+### 2) Prefix and pad length
 
-Provide a prefix and a minimum numeric length (padded with zeros):
+Provide a prefix and a pad numeric length (padded with zeros):
 
 ```php
 $value = DB::transaction(function () {
@@ -79,11 +79,11 @@ $value = DB::transaction(function () {
 });
 ```
 
-You can combine any prefix string with an integer `minimumLength`.
+You can combine any prefix string with an integer `padLength`.
 
 ### 3) Dynamic parts (e.g. year + sequence)
 
-If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable minimum length:
+If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable pad length:
 
 ```php
 $value = DB::transaction(function () {
@@ -91,7 +91,7 @@ $value = DB::transaction(function () {
 });
 ```
 
-Note: rollover behavior for prefixed dynamic values is controlled by grouping. If you want a separate counter per year, use grouping (see below).
+Note: reset behavior for prefixed dynamic values is controlled by grouping. If you want a separate counter per year, use grouping (see below).
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
 
@@ -235,9 +235,9 @@ protected function sequenceColumns(): SequenceColumnCollection
 
 ## API reference
 
-- Helper: `sequence(string $name, string $prefix = '', int $minimumLength = 0)` — returns a `NextSequence` instance.
+- Helper: `sequence(string $name, string $prefix = '', int $padLength = 0)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
-- Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (rollover limit, grouping, prefix, etc.).
+- Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
 - Call `->next(): string` to reserve and return the next sequence value.
 
 Example:
@@ -253,9 +253,9 @@ Example with config callback:
 ```php
 use Hatchyu\Sequence\Support\SequenceConfig;
 
-$next = sequence('rollover_test', '', 2)
+$next = sequence('range_test', '', 2)
     ->config(function (SequenceConfig $config) {
-        $config->rolloverLimit(7)
+        $config->range(1, 7)
             ->groupBy(date('Y'));
     })
     ->next();
@@ -271,9 +271,9 @@ Note: `config()` is just a convenience. You can still chain `groupBy()` or other
 - If you configured a custom connection in `config/sequence.php`, make sure to use that same connection for the surrounding transaction.
 - Ensure your database engine supports row-level locking in transactions (e.g., InnoDB on MySQL).
 
-## Rollover and limits
+## Range and overflow
 
-The package supports rolling over or setting limits via `SequenceConfig` (see `->rolloverLimit()` on the config). When the limit is reached, the next number resets to `1`. Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
+The package supports min/max ranges via `SequenceConfig::range()`. When the max is reached, the next number either wraps to the min (use `->cycle()`) or throws an exception (default `FAIL`). Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
 
 ## Customization (Config)
 
@@ -314,8 +314,8 @@ Key test files:
 - `tests/Unit/SequenceAssignedEventTest.php` - Tests event dispatching
 
 Test coverage includes:
-- Configuration creation with prefix and minimum length
-- Validation of negative minimum length (throws exception)
+- Configuration creation with prefix and pad length
+- Validation of negative pad length (throws exception)
 - Validation of grouping by non-persisted models (throws exception)
 - Event dispatching when sequence numbers are assigned
 
@@ -378,8 +378,9 @@ The package throws `Hatchyu\Sequence\Exceptions\SequenceException` (a `RuntimeEx
   - `CODE_TRANSACTION_NOT_INITIATED_ON_CONNECTION` (301) — no active transaction on specific connection
 
 - `SequenceConfigException` — invalid configuration values
-  - `CODE_MIN_LENGTH_NEGATIVE` (100) — minimum length is negative
-  - `CODE_ROLLOVER_LIMIT_NEGATIVE` (101) — rollover limit is negative
+  - `CODE_PAD_LENGTH_NEGATIVE` (100) — pad length is negative
+  - `CODE_MIN_NEGATIVE` (101) — min value is negative
+  - `CODE_MAX_TOO_SMALL` (103) — max value is less than 1
   - `CODE_INVALID_MODEL_CLASS` (102) — configured model class is invalid
 
 - `SequenceModelException` — invalid or unsaved models

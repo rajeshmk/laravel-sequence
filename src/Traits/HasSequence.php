@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Hatchyu\Sequence\Traits;
 
 use Hatchyu\Sequence\Support\NextSequence;
-use Hatchyu\Sequence\Support\SequenceConfig;
 use Hatchyu\Sequence\Support\SequenceColumnCollection;
+use Hatchyu\Sequence\Support\SequenceConfig;
 
 trait HasSequence
 {

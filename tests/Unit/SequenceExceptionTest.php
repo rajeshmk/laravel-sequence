@@ -8,13 +8,16 @@ use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 use Hatchyu\Sequence\Exceptions\SequenceValidationException;
 
 it('assigns config exception codes', function () {
-    $ex = SequenceConfigException::minimumLengthMustBeNonNegative();
+    $ex = SequenceConfigException::padLengthMustBeNonNegative();
     expect($ex)->toBeInstanceOf(SequenceConfigException::class)
-        ->and($ex->getCode())->toBe(SequenceConfigException::CODE_MIN_LENGTH_NEGATIVE)
+        ->and($ex->getCode())->toBe(SequenceConfigException::CODE_PAD_LENGTH_NEGATIVE)
     ;
 
-    $ex = SequenceConfigException::rolloverLimitMustBeNonNegative();
-    expect($ex->getCode())->toBe(SequenceConfigException::CODE_ROLLOVER_LIMIT_NEGATIVE);
+    $ex = SequenceConfigException::minMustBeNonNegative();
+    expect($ex->getCode())->toBe(SequenceConfigException::CODE_MIN_NEGATIVE);
+
+    $ex = SequenceConfigException::maxMustBeAtLeastOne();
+    expect($ex->getCode())->toBe(SequenceConfigException::CODE_MAX_TOO_SMALL);
 
     $ex = SequenceConfigException::invalidModelClass('App\\Models\\Sequence');
     expect($ex->getCode())->toBe(SequenceConfigException::CODE_INVALID_MODEL_CLASS);

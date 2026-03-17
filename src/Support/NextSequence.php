@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Hatchyu\Sequence\Support;
 
 use Closure;
+use Hatchyu\Sequence\Enums\OverflowStrategy;
 use Hatchyu\Sequence\Events\SequenceAssigned;
 use Hatchyu\Sequence\Exceptions\SequenceConfigException;
+use Hatchyu\Sequence\Exceptions\SequenceException;
 use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 use Hatchyu\Sequence\Exceptions\SequenceValidationException;
 use Hatchyu\Sequence\Models\Sequence;
@@ -35,9 +37,9 @@ final readonly class NextSequence
         $this->ensureDbTransaction();
     }
 
-    public static function create(string $name, string $prefix = '', int $minimumLength = 0): static
+    public static function create(string $name, string $prefix = '', int $padLength = 0): static
     {
-        $config = SequenceConfig::create($prefix, $minimumLength);
+        $config = SequenceConfig::create($prefix, $padLength);
 
         return new self(trim($name), $config);
     }
@@ -164,13 +166,38 @@ final readonly class NextSequence
 
     private function calculateNextNumber(Model $sequence): int
     {
-        $lastNumber = $sequence->last_number;
+        $last = (int) $sequence->last_number;
 
-        if ($this->config->isMaxLimitReached($lastNumber)) {
-            return 1;
+        $min = $this->config->getMin();
+        $max = $this->config->getMax();
+
+        // First allocation (or corrupted state)
+        if ($last < $min) {
+            return $min;
         }
 
-        return $lastNumber + 1;
+        // Unbounded sequence → simple increment
+        if ($max === null) {
+            return $last + 1;
+        }
+
+        // Within bounds → increment
+        if ($last < $max) {
+            return $last + 1;
+        }
+
+        // Overflow handling
+        return match ($this->config->getOverflowStrategy()) {
+            OverflowStrategy::CYCLE => $min,
+
+            // @TODO - do not use package's top level exception class SequenceException
+            OverflowStrategy::FAIL => throw new SequenceException(
+                __('Sequence limit reached for :name at :max', [
+                    'name' => $sequence->name,
+                    'max' => $max,
+                ])
+            ),
+        };
     }
 
     private function selectForUpdate(): ?Model
@@ -203,7 +230,7 @@ final readonly class NextSequence
 
     private function paddedNumber(int $number): string
     {
-        $padLength = $this->config->minimumLength();
+        $padLength = $this->config->padLength();
 
         return $padLength > 0
             ? str_pad((string) $number, $padLength, '0', STR_PAD_LEFT)

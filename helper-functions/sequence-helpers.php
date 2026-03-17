@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Hatchyu\Sequence\Support\NextSequence;
 
-function sequence(string $name, string $prefix = '', int $minimumLength = 0): NextSequence
+function sequence(string $name, string $prefix = '', int $padLength = 0): NextSequence
 {
-    return NextSequence::create($name, $prefix, $minimumLength);
+    return NextSequence::create($name, $prefix, $padLength);
 }

@@ -94,11 +94,13 @@ for ($i = 1; $i <= $workers; $i++) {
                             'value' => $value,
                         ]);
                     });
+
                     break;
                 } catch (QueryException $e) {
                     if (str_contains($e->getMessage(), 'database is locked') && $attempt < $maxAttempts) {
                         $attempt++;
                         usleep(50000 * $attempt);
+
                         continue;
                     }
 

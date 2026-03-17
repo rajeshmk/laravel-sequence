@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hatchyu\Sequence\Support;
 
 use Closure;
+use Hatchyu\Sequence\Enums\OverflowStrategy;
 use Hatchyu\Sequence\Exceptions\SequenceConfigException;
 use Hatchyu\Sequence\Exceptions\SequenceModelException;
 use Illuminate\Database\Eloquent\Model;
@@ -17,27 +18,30 @@ final class SequenceConfig
 
     private ?string $groupByToken = null;
 
+    private int $min = 1;
+
+    private ?int $max = null;
+
+    private OverflowStrategy $overflowStrategy = OverflowStrategy::FAIL;
+
     private function __construct(
         private string $prefix,
-        private int $minimumLength,
-        private int $rolloverLimit,
+        private int $padLength,
     ) {
-        $this->prefix($prefix, $minimumLength);
-        $this->rolloverLimit($rolloverLimit);
+        $this->prefix($prefix, $padLength);
     }
 
     public static function create(
         string $prefix = '',
-        int $minimumLength = 0,
-        int $rolloverLimit = 0
+        int $padLength = 0,
     ): self {
-        return new self($prefix, $minimumLength, $rolloverLimit);
+        return new self($prefix, $padLength);
     }
 
-    public function prefix(string $prefix, int $minimumLength = 0): self
+    public function prefix(string $prefix, int $padLength = 0): self
     {
         $this->setPrefix($prefix);
-        $this->setMinimumLength($minimumLength);
+        $this->setPadLength($padLength);
 
         return $this;
     }
@@ -47,22 +51,53 @@ final class SequenceConfig
         return $this->prefix;
     }
 
-    public function minimumLength(): int
+    public function range(int $min, ?int $max = null): self
     {
-        return $this->minimumLength;
+        return $this->setRange($min, $max);
     }
 
-    public function rolloverLimit(int $limit): self
+    public function bounded(int $min, int $max): self
     {
-        $this->setRolloverLimit($limit);
-
-        return $this;
+        return $this->range($min, $max)
+            ->throwOnOverflow()
+        ;
     }
 
-    public function isMaxLimitReached(int $lastNumber): bool
+    public function cyclingRange(int $min, int $max): self
     {
-        return $this->rolloverLimit > 0
-            && $lastNumber >= $this->rolloverLimit;
+        return $this->range($min, $max)
+            ->cycle()
+        ;
+    }
+
+    public function getMin(): int
+    {
+        return $this->min;
+    }
+
+    public function getMax(): ?int
+    {
+        return $this->max;
+    }
+
+    public function cycle(): self
+    {
+        return $this->setOverflowStrategy(OverflowStrategy::CYCLE);
+    }
+
+    public function throwOnOverflow(): self
+    {
+        return $this->setOverflowStrategy(OverflowStrategy::FAIL);
+    }
+
+    public function getOverflowStrategy(): OverflowStrategy
+    {
+        return $this->overflowStrategy;
+    }
+
+    public function padLength(): int
+    {
+        return $this->padLength;
     }
 
     public function belongsTo(Model ...$models): self
@@ -109,6 +144,13 @@ final class SequenceConfig
         return $this->groupByToken;
     }
 
+    private function setOverflowStrategy(OverflowStrategy $strategy): self
+    {
+        $this->overflowStrategy = $strategy;
+
+        return $this;
+    }
+
     private function addGroupKey(int|string|Model $group): void
     {
         if ($group instanceof Model) {
@@ -126,22 +168,29 @@ final class SequenceConfig
         $this->prefix = trim($prefix);
     }
 
-    private function setMinimumLength(int $length): void
+    private function setPadLength(int $length): void
     {
         if ($length < 0) {
-            throw SequenceConfigException::minimumLengthMustBeNonNegative();
+            throw SequenceConfigException::padLengthMustBeNonNegative();
         }
 
-        $this->minimumLength = $length;
+        $this->padLength = $length;
     }
 
-    private function setRolloverLimit(int $limit): void
+    private function setRange(int $min, ?int $max = null): self
     {
-        if ($limit < 0) {
-            throw SequenceConfigException::rolloverLimitMustBeNonNegative();
+        if ($min < 0) {
+            throw SequenceConfigException::minMustBeNonNegative();
         }
 
-        $this->rolloverLimit = $limit;
+        if ($max !== null && $max < 1) {
+            throw SequenceConfigException::maxMustBeAtLeastOne();
+        }
+
+        $this->min = $min;
+        $this->max = $max;
+
+        return $this;
     }
 
     private function validateModel(Model $model): void
