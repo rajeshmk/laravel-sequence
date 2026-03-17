@@ -24,6 +24,7 @@ trait HasRollNumber
     private static function fillSequenceNumber(self $entity, string $column, RollNumberConfig $config): void
     {
         $currentValue = $entity->getAttribute($column);
+
         if ($currentValue !== null && $currentValue !== '') {
             return;
         }

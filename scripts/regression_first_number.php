@@ -2,15 +2,17 @@
 
 declare(strict_types=1);
 
+use Hatchyu\RollNumber\Models\RollNumber;
 use Hatchyu\RollNumber\Support\NextRollNumber;
 use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Events\Dispatcher;
 
 require __DIR__ . '/../vendor/autoload.php';
-
-final class Branch {}
 
 final class CustomerStub extends Model
 {
@@ -37,6 +39,19 @@ $capsule->addConnection([
 $capsule->setAsGlobal();
 $capsule->bootEloquent();
 
+// Minimal container bindings for helpers like config() and event().
+$container = new Container();
+Container::setInstance($container);
+$container->instance('config', new ConfigRepository([
+    'roll-number' => [
+        'table' => 'roll_numbers',
+        'connection' => null,
+        'model' => RollNumber::class,
+        'strict_mode' => true,
+    ],
+]));
+$container->instance('events', new Dispatcher($container));
+
 Capsule::schema()->create('roll_numbers', function (Blueprint $table): void {
     $table->id();
     $table->string('name', 100);
@@ -58,21 +73,24 @@ $conn->transaction(function (): void {
 
     $customer = new CustomerStub();
 
-    $configA = RollNumberConfig::from([
-        'column' => 'customer_code',
-        'prefix' => 'CU',
-        'minimumLength' => 3,
-    ])->groupBy('branch', 'A');
+    $configA = RollNumberConfig::create('CU', 3)->groupBy('branch', 'A');
+    $configB = RollNumberConfig::create('CU', 3)->groupBy('branch', 'B');
 
-    $configB = RollNumberConfig::from([
-        'column' => 'customer_code',
-        'prefix' => 'CU',
-        'minimumLength' => 3,
-    ])->groupBy('branch', 'B');
-
-    assertSameString('CU001', NextRollNumber::createForModel($customer, $configA)->next(), 'group A first number');
-    assertSameString('CU002', NextRollNumber::createForModel($customer, $configA)->next(), 'group A second number');
-    assertSameString('CU001', NextRollNumber::createForModel($customer, $configB)->next(), 'group B first number');
+    assertSameString(
+        'CU001',
+        NextRollNumber::createForModel($customer, 'customer_code', $configA)->next(),
+        'group A first number'
+    );
+    assertSameString(
+        'CU002',
+        NextRollNumber::createForModel($customer, 'customer_code', $configA)->next(),
+        'group A second number'
+    );
+    assertSameString(
+        'CU001',
+        NextRollNumber::createForModel($customer, 'customer_code', $configB)->next(),
+        'group B first number'
+    );
 });
 
 echo "OK\n";

@@ -10,6 +10,14 @@ Generate sequential “roll numbers” (for example `INV-000001`) safely from th
 - Laravel: `^10 || ^11 || ^12`
 - Database: uses row-level locking (`SELECT ... FOR UPDATE`) inside transactions to ensure safe concurrent increments.
 
+### Development Requirements
+
+For development and testing:
+- [Pest](https://pestphp.com/) - PHP testing framework
+- [Laravel Pint](https://github.com/laravel/pint) - Code formatter
+- [Rector](https://getrector.org/) - Code refactoring tool
+- [PHPStan](https://phpstan.org/) - Static analysis tool
+
 ## Installation
 
 Install via Composer:
@@ -40,7 +48,7 @@ php artisan vendor:publish --tag=roll-number-migrations --provider="Hatchyu\\Rol
 
 The package creates a `roll_numbers` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
 
-If you use a custom model via `config('roll-number.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package reads/writes those attributes directly, so ensure they are fillable or guarded appropriately.
+If you use a custom model via `config('roll-number.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package writes those attributes via `forceFill()`, so `fillable` is not required.
 
 ## Usage
 
@@ -87,7 +95,9 @@ Note: rollover behavior for prefixed dynamic values is controlled by grouping. I
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
 
-Sometimes you want separate counters per group of values (branch, year, tenant, etc.). The package supports grouping by multiple keys or models. Example: reset sequence per branch and year:
+Sometimes you want separate counters per group of values (branch, year, tenant, etc.). The package supports grouping by multiple keys or models.
+
+Example: reset sequence per branch and year:
 
 ```php
 // When generating directly with multiple group keys
@@ -100,10 +110,75 @@ DB::transaction(function () use ($branchId, $year) {
 // When used via HasRollNumber, configure grouping in RollNumberConfig (example below)
 ```
 
+#### Advanced grouping: custom group key resolver
+
+If you need a custom token format (e.g., `tenantId:year:branch`), you can provide a resolver callback:
+
+```php
+use Hatchyu\RollNumber\Support\RollNumberConfig;
+
+$roll = roll_number('invoice')
+    ->config(fn (RollNumberConfig $c) =>
+        $c->resolveGroupKeyUsing(fn (array $keys) => implode(':', $keys))
+          ->groupBy($tenantId, date('Y'), $branchId)
+    )
+    ->next();
+
+// Example token: 12:2026:3
+```
+
 Notes:
 
 - You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
 - Models must exist in the database before being used for grouping.
+
+### Example patterns (from real-world usage)
+
+Simple sequence:
+
+```php
+DB::transaction(fn () => roll_number('simple_sequence')->next());
+// 1, 2, 3, ...
+```
+
+Prefixed with zero-padding:
+
+```php
+DB::transaction(fn () => roll_number('prefixed_category_code', 'C', 3)->next());
+// C001, C002, C003, ...
+```
+
+Year-prefixed numeric:
+
+```php
+DB::transaction(fn () => roll_number('cv_number_prefixed_by_year', date('Y'), 2)->next());
+// 202601, 202602, 202603, ...
+```
+
+Templated prefix:
+
+```php
+$prefix = 'JOB/' . date('Y') . '/';
+DB::transaction(fn () => roll_number('custom_job_code', $prefix, 2)->next());
+// JOB/2026/01, JOB/2026/02, ...
+```
+
+Grouped by year:
+
+```php
+DB::transaction(fn () => roll_number('batch_code_grouped_by_year', '', 2)->groupBy(date('Y'))->next());
+// 2026[01, 02, ...], 2027[01, 02, ...]
+```
+
+Multiple grouping keys (tenant, branch, year):
+
+```php
+DB::transaction(function () {
+    return roll_number('invoice_tenant_branch_year_wise', '', 2)
+        ->groupBy(1, 2, date('Y'))
+        ->next();
+});
+```
 
 ### 5) Auto-assign on Eloquent models (`HasRollNumber`)
 
@@ -207,6 +282,7 @@ After publishing the config file, you can customize:
 - `table`: The name of the roll number counters table.
 - `connection`: The database connection used by the roll number model (use the same connection for your surrounding transaction).
 - `model`: The Eloquent model class for roll numbers. Must extend `Model` and use a table with `name`, `group_by`, and `last_number` columns.
+- `strict_mode`: When enabled (default), validates name and group key lengths and throws clear exceptions before hitting DB errors.
 
 ## Events
 
@@ -223,20 +299,162 @@ Event::listen(RollNumberAssigned::class, function (RollNumberAssigned $event) {
 
 ## Testing
 
-- Use `DB::transaction()` in tests when generating numbers.
-- For concurrency testing, simulate parallel transactions or use database fixtures and multiple connections.
+The package includes comprehensive unit tests and concurrency regression tests.
 
-## Troubleshooting
+### Unit Tests
+
+Run the test suite with Pest:
+
+```bash
+./vendor/bin/pest
+```
+
+Key test files:
+- `tests/Unit/RollNumberConfigTest.php` - Tests configuration creation, validation, and grouping
+- `tests/Unit/RollNumberAssignedEventTest.php` - Tests event dispatching
+
+Test coverage includes:
+- Configuration creation with prefix and minimum length
+- Validation of negative minimum length (throws exception)
+- Validation of grouping by non-persisted models (throws exception)
+- Event dispatching when roll numbers are assigned
+
+### Concurrency Testing
+
+For concurrency testing, use the regression script that simulates parallel processes:
+
+```bash
+php scripts/regression_concurrency.php
+```
+
+This script:
+- Creates multiple worker processes that generate roll numbers simultaneously
+- Verifies no duplicate numbers are generated
+- Tests the concurrency safety of the package
+
+### Testing Best Practices
+
+- Always wrap roll number generation in `DB::transaction()` in tests
+- Use database fixtures for consistent test data
+- Test both simple sequences and grouped sequences
+- Verify event dispatching in integration tests
+
+Example test:
+
+```php
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Hatchyu\RollNumber\Events\RollNumberAssigned;
+
+uses(RefreshDatabase::class);
+
+it('generates sequential roll numbers', function () {
+    $value1 = DB::transaction(fn() => roll_number('test')->next());
+    $value2 = DB::transaction(fn() => roll_number('test')->next());
+
+    expect($value1)->toBe('1');
+    expect($value2)->toBe('2');
+});
+
+it('dispatches roll number assigned event', function () {
+    Event::fake();
+
+    DB::transaction(fn() => roll_number('test')->next());
+
+    Event::assertDispatched(RollNumberAssigned::class);
+});
+```
+
+## Error handling & troubleshooting
+
+The package throws `Hatchyu\RollNumber\Exceptions\RollNumberException` (a `RuntimeException`) and a few grouped subclasses with specific error codes:
+
+- `RollNumberValidationException` — invalid names or group-by tokens
+  - `CODE_NAME_REQUIRED` (400) — roll number name is empty
+  - `CODE_NAME_TOO_LONG` (401) — roll number name exceeds length limit
+  - `CODE_GROUP_BY_TOKEN_TOO_LONG` (402) — group-by token exceeds length limit
+
+- `RollNumberTransactionException` — missing DB transaction
+  - `CODE_TRANSACTION_NOT_INITIATED` (300) — no active transaction
+  - `CODE_TRANSACTION_NOT_INITIATED_ON_CONNECTION` (301) — no active transaction on specific connection
+
+- `RollNumberConfigException` — invalid configuration values
+  - `CODE_MIN_LENGTH_NEGATIVE` (100) — minimum length is negative
+  - `CODE_ROLLOVER_LIMIT_NEGATIVE` (101) — rollover limit is negative
+  - `CODE_INVALID_MODEL_CLASS` (102) — configured model class is invalid
+
+- `RollNumberModelException` — invalid or unsaved models
+  - `CODE_MODEL_KEY_MUST_BE_STRING` (200) — model key is not a string
+  - `CODE_MODEL_MUST_BE_PERSISTED` (201) — model must be saved before grouping
+
+You can catch either the base class or a specific subclass depending on how granular you want the handling to be. Each exception includes a specific error code for programmatic handling.
+
+Example:
+
+```php
+use Hatchyu\RollNumber\Exceptions\RollNumberException;
+use Hatchyu\RollNumber\Exceptions\RollNumberTransactionException;
+
+try {
+    DB::transaction(fn () => roll_number('orders')->next());
+} catch (RollNumberTransactionException $e) {
+    if ($e->getCode() === RollNumberTransactionException::CODE_TRANSACTION_NOT_INITIATED) {
+        // handle missing transaction specifically
+    }
+    throw $e;
+} catch (RollNumberException $e) {
+    // handle any other roll-number error
+    throw $e;
+}
+```
+
+### Common troubleshooting
 
 - "Not in transaction" exception: ensure `roll_number()` runs inside `DB::transaction()`.
 - Duplicate numbers under concurrency: check that your DB supports `SELECT ... FOR UPDATE` on the used engine and that transactions are used.
 
 ## Development
 
-Run the regression script locally:
+### Running Tests
 
 ```bash
+# Run all tests
+./vendor/bin/pest
+
+# Run specific test file
+./vendor/bin/pest tests/Unit/RollNumberConfigTest.php
+
+# Run with coverage
+./vendor/bin/pest --coverage
+```
+
+Note: the current test suite focuses on unit-level behavior (config validation, exceptions, and event construction). If you need end-to-end verification of DB transactions and roll-number generation patterns, add integration tests in your application or introduce a Laravel test harness.
+
+### Regression Scripts
+
+The `scripts/` directory contains regression testing scripts:
+
+```bash
+# Test first number generation
 php scripts/regression_first_number.php
+
+# Test concurrency with multiple processes (requires pcntl extension)
+php scripts/regression_concurrency.php
+```
+
+### Code Quality
+
+```bash
+# Run Laravel Pint for code formatting
+./vendor/bin/pint
+
+# Run strict code formatting
+./vendor/bin/pint --config=pint.strict.json
+
+# Run Rector for code refactoring
+./vendor/bin/rector process
+
+# Run PHPStan for static analysis
+./vendor/bin/phpstan analyse
 ```
 
 ## Contribution

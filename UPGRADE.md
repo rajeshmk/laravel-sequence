@@ -1,6 +1,6 @@
 # Upgrade Guide
 
-## Unreleased
+## 2.0.0 - March 17, 2026
 
 ### `padLength` renamed to `minimumLength` (breaking)
 

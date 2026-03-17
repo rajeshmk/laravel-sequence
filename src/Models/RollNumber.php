@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hatchyu\RollNumber\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Override;
 
 class RollNumber extends Model
 {
@@ -19,11 +20,13 @@ class RollNumber extends Model
         'last_number',
     ];
 
+    #[Override]
     public function getTable(): string
     {
         return $this->table ?? config('roll-number.table', 'roll_numbers');
     }
 
+    #[Override]
     protected function casts(): array
     {
         return [

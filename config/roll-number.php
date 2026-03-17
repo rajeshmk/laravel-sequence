@@ -12,4 +12,7 @@ return [
 
     // Model class used to represent roll numbers (can be customized if you extend it).
     'model' => RollNumber::class,
+
+    // Enable strict validation to fail early (name/group_by length, invalid model class, etc.).
+    'strict_mode' => env('ROLL_NUMBER_STRICT_MODE', true),
 ];

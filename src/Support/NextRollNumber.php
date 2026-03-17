@@ -6,15 +6,22 @@ namespace Hatchyu\RollNumber\Support;
 
 use Closure;
 use Hatchyu\RollNumber\Events\RollNumberAssigned;
-use Hatchyu\RollNumber\Exceptions\RollNumberException;
+use Hatchyu\RollNumber\Exceptions\RollNumberConfigException;
+use Hatchyu\RollNumber\Exceptions\RollNumberTransactionException;
+use Hatchyu\RollNumber\Exceptions\RollNumberValidationException;
+use Hatchyu\RollNumber\Models\RollNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 use function event;
 
-final class NextRollNumber
+final readonly class NextRollNumber
 {
+    private const int NAME_MAX_LENGTH = 100;
+
+    private const int GROUP_BY_MAX_LENGTH = 250;
+
     /**
      * Private constructor.
      *
@@ -74,15 +81,42 @@ final class NextRollNumber
     private function ensureName(string $name): void
     {
         if ($name === '') {
-            throw RollNumberException::nameRequired();
+            throw RollNumberValidationException::nameRequired();
+        }
+
+        if ($this->isStrictModeEnabled() && strlen($name) > self::NAME_MAX_LENGTH) {
+            throw RollNumberValidationException::nameTooLong(self::NAME_MAX_LENGTH);
         }
     }
 
     private function ensureDbTransaction(): void
     {
-        if ($this->rollNumberModel()->getConnection()->transactionLevel() < 1) {
-            throw RollNumberException::transactionNotInitiated();
+        $connection = $this->rollNumberModel()->getConnection();
+        if ($connection->transactionLevel() < 1) {
+            $connectionName = $connection->getName();
+            if (is_string($connectionName) && $connectionName !== '') {
+                throw RollNumberTransactionException::transactionNotInitiatedOnConnection($connectionName);
+            }
+
+            throw RollNumberTransactionException::transactionNotInitiated();
         }
+    }
+
+    private function ensureGroupByTokenLength(): void
+    {
+        if (! $this->isStrictModeEnabled()) {
+            return;
+        }
+
+        $token = $this->config->groupByToken();
+        if (strlen($token) > self::GROUP_BY_MAX_LENGTH) {
+            throw RollNumberValidationException::groupByTokenTooLong(self::GROUP_BY_MAX_LENGTH);
+        }
+    }
+
+    private function isStrictModeEnabled(): bool
+    {
+        return (bool) config('roll-number.strict_mode', true);
     }
 
     private function getNextNumber(): Model
@@ -95,13 +129,16 @@ final class NextRollNumber
 
         $lastNumber = $this->calculateNextNumber($rollNumber);
 
-        $rollNumber->update(['last_number' => $lastNumber]);
+        $rollNumber->forceFill(['last_number' => $lastNumber]);
+        $rollNumber->save();
 
         return $rollNumber;
     }
 
     private function getCurrentRollNumber(): Model
     {
+        $this->ensureGroupByTokenLength();
+
         $rollNumber = $this->selectForUpdate();
         if ($rollNumber !== null) {
             return $rollNumber;
@@ -148,11 +185,15 @@ final class NextRollNumber
 
     private function createFirstNumber(): Model
     {
-        return $this->rollNumberQuery()->create([
+        $rollNumber = $this->rollNumberModel();
+        $rollNumber->forceFill([
             'name' => $this->name,
             'group_by' => $this->config->groupByToken(),
             'last_number' => 1,
         ]);
+        $rollNumber->save();
+
+        return $rollNumber;
     }
 
     private function withPrefix(int $number): string
@@ -199,12 +240,19 @@ final class NextRollNumber
      */
     private function rollNumberModelClass(): string
     {
-        return config('roll-number.model', \Hatchyu\RollNumber\Models\RollNumber::class);
+        $class = config('roll-number.model', RollNumber::class);
+
+        if (! is_string($class) || $class === '' || ! class_exists($class) || ! is_subclass_of($class, Model::class)) {
+            throw RollNumberConfigException::invalidModelClass((string) $class);
+        }
+
+        return $class;
     }
 
     private function rollNumberModel(): Model
     {
         $modelClass = $this->rollNumberModelClass();
+
         /** @var Model $model */
         $model = new $modelClass();
 
