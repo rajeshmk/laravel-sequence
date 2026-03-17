@@ -1,10 +1,10 @@
 <?php
 
 declare(strict_types=1);
-use Hatchyu\RollNumber\Events\RollNumberAssigned;
+use Hatchyu\Sequence\Events\SequenceAssigned;
 
-it('can construct RollNumberAssigned event', function () {
-    $event = new RollNumberAssigned(
+it('can construct SequenceAssigned event', function () {
+    $event = new SequenceAssigned(
         name: 'orders',
         rawNumber: 12,
         sequenceNumber: 'ORD-00012',

@@ -2,21 +2,21 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Support;
+namespace Hatchyu\Sequence\Support;
 
 use Closure;
-use Hatchyu\RollNumber\Events\RollNumberAssigned;
-use Hatchyu\RollNumber\Exceptions\RollNumberConfigException;
-use Hatchyu\RollNumber\Exceptions\RollNumberTransactionException;
-use Hatchyu\RollNumber\Exceptions\RollNumberValidationException;
-use Hatchyu\RollNumber\Models\RollNumber;
+use Hatchyu\Sequence\Events\SequenceAssigned;
+use Hatchyu\Sequence\Exceptions\SequenceConfigException;
+use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
+use Hatchyu\Sequence\Exceptions\SequenceValidationException;
+use Hatchyu\Sequence\Models\Sequence;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 use function event;
 
-final readonly class NextRollNumber
+final readonly class NextSequence
 {
     private const int NAME_MAX_LENGTH = 100;
 
@@ -29,7 +29,7 @@ final readonly class NextRollNumber
      */
     private function __construct(
         private string $name,
-        private RollNumberConfig $config,
+        private SequenceConfig $config,
     ) {
         $this->ensureName($name);
         $this->ensureDbTransaction();
@@ -37,12 +37,12 @@ final readonly class NextRollNumber
 
     public static function create(string $name, string $prefix = '', int $minimumLength = 0): static
     {
-        $config = RollNumberConfig::create($prefix, $minimumLength);
+        $config = SequenceConfig::create($prefix, $minimumLength);
 
         return new self(trim($name), $config);
     }
 
-    public static function createForModel(Model $model, string $column, RollNumberConfig $config): static
+    public static function createForModel(Model $model, string $column, SequenceConfig $config): static
     {
         $name = Str::snake($model->getTable()) . '.' . Str::snake($column);
 
@@ -65,11 +65,11 @@ final readonly class NextRollNumber
 
     public function next(): string
     {
-        $rollNumber = $this->getNextNumber();
+        $sequence = $this->getNextNumber();
 
-        $sequenceNumber = $this->withPrefix($rollNumber->last_number);
+        $sequenceNumber = $this->withPrefix($sequence->last_number);
 
-        $this->dispatchRollNumberAssignedEvent($sequenceNumber, $rollNumber);
+        $this->dispatchSequenceAssignedEvent($sequenceNumber, $sequence);
 
         return $sequenceNumber;
     }
@@ -81,24 +81,24 @@ final readonly class NextRollNumber
     private function ensureName(string $name): void
     {
         if ($name === '') {
-            throw RollNumberValidationException::nameRequired();
+            throw SequenceValidationException::nameRequired();
         }
 
         if ($this->isStrictModeEnabled() && strlen($name) > self::NAME_MAX_LENGTH) {
-            throw RollNumberValidationException::nameTooLong(self::NAME_MAX_LENGTH);
+            throw SequenceValidationException::nameTooLong(self::NAME_MAX_LENGTH);
         }
     }
 
     private function ensureDbTransaction(): void
     {
-        $connection = $this->rollNumberModel()->getConnection();
+        $connection = $this->sequenceModel()->getConnection();
         if ($connection->transactionLevel() < 1) {
             $connectionName = $connection->getName();
             if (is_string($connectionName) && $connectionName !== '') {
-                throw RollNumberTransactionException::transactionNotInitiatedOnConnection($connectionName);
+                throw SequenceTransactionException::transactionNotInitiatedOnConnection($connectionName);
             }
 
-            throw RollNumberTransactionException::transactionNotInitiated();
+            throw SequenceTransactionException::transactionNotInitiated();
         }
     }
 
@@ -110,38 +110,38 @@ final readonly class NextRollNumber
 
         $token = $this->config->groupByToken();
         if (strlen($token) > self::GROUP_BY_MAX_LENGTH) {
-            throw RollNumberValidationException::groupByTokenTooLong(self::GROUP_BY_MAX_LENGTH);
+            throw SequenceValidationException::groupByTokenTooLong(self::GROUP_BY_MAX_LENGTH);
         }
     }
 
     private function isStrictModeEnabled(): bool
     {
-        return (bool) config('roll-number.strict_mode', true);
+        return (bool) config('sequence.strict_mode', true);
     }
 
     private function getNextNumber(): Model
     {
-        $rollNumber = $this->getCurrentRollNumber();
+        $sequence = $this->getCurrentSequence();
 
-        if ($rollNumber->wasRecentlyCreated) {
-            return $rollNumber;
+        if ($sequence->wasRecentlyCreated) {
+            return $sequence;
         }
 
-        $lastNumber = $this->calculateNextNumber($rollNumber);
+        $lastNumber = $this->calculateNextNumber($sequence);
 
-        $rollNumber->forceFill(['last_number' => $lastNumber]);
-        $rollNumber->save();
+        $sequence->forceFill(['last_number' => $lastNumber]);
+        $sequence->save();
 
-        return $rollNumber;
+        return $sequence;
     }
 
-    private function getCurrentRollNumber(): Model
+    private function getCurrentSequence(): Model
     {
         $this->ensureGroupByTokenLength();
 
-        $rollNumber = $this->selectForUpdate();
-        if ($rollNumber !== null) {
-            return $rollNumber;
+        $sequence = $this->selectForUpdate();
+        if ($sequence !== null) {
+            return $sequence;
         }
 
         try {
@@ -153,18 +153,18 @@ final readonly class NextRollNumber
                 throw $exception;
             }
 
-            $rollNumber = $this->selectForUpdate();
-            if ($rollNumber === null) {
+            $sequence = $this->selectForUpdate();
+            if ($sequence === null) {
                 throw $exception;
             }
         }
 
-        return $rollNumber;
+        return $sequence;
     }
 
-    private function calculateNextNumber(Model $rollNumber): int
+    private function calculateNextNumber(Model $sequence): int
     {
-        $lastNumber = $rollNumber->last_number;
+        $lastNumber = $sequence->last_number;
 
         if ($this->config->isMaxLimitReached($lastNumber)) {
             return 1;
@@ -175,7 +175,7 @@ final readonly class NextRollNumber
 
     private function selectForUpdate(): ?Model
     {
-        return $this->rollNumberQuery()
+        return $this->sequenceQuery()
             ->where('name', $this->name)
             ->where('group_by', $this->config->groupByToken())
             ->lockForUpdate()
@@ -185,15 +185,15 @@ final readonly class NextRollNumber
 
     private function createFirstNumber(): Model
     {
-        $rollNumber = $this->rollNumberModel();
-        $rollNumber->forceFill([
+        $sequence = $this->sequenceModel();
+        $sequence->forceFill([
             'name' => $this->name,
             'group_by' => $this->config->groupByToken(),
             'last_number' => 1,
         ]);
-        $rollNumber->save();
+        $sequence->save();
 
-        return $rollNumber;
+        return $sequence;
     }
 
     private function withPrefix(int $number): string
@@ -224,39 +224,39 @@ final readonly class NextRollNumber
             || str_contains($message, 'unique violation');
     }
 
-    private function dispatchRollNumberAssignedEvent(string $sequenceNumber, Model $rollNumber): void
+    private function dispatchSequenceAssignedEvent(string $sequenceNumber, Model $sequence): void
     {
-        // Dispatch an event so consumers can react when a roll number is assigned.
-        event(new RollNumberAssigned(
-            name: $rollNumber->name,
-            rawNumber: $rollNumber->last_number,
+        // Dispatch an event so consumers can react when a sequence number is assigned.
+        event(new SequenceAssigned(
+            name: $sequence->name,
+            rawNumber: $sequence->last_number,
             sequenceNumber: $sequenceNumber,
-            groupByKey: $rollNumber->group_by,
+            groupByKey: $sequence->group_by,
         ));
     }
 
     /**
      * @return class-string<Model>
      */
-    private function rollNumberModelClass(): string
+    private function sequenceModelClass(): string
     {
-        $class = config('roll-number.model', RollNumber::class);
+        $class = config('sequence.model', Sequence::class);
 
         if (! is_string($class) || $class === '' || ! class_exists($class) || ! is_subclass_of($class, Model::class)) {
-            throw RollNumberConfigException::invalidModelClass((string) $class);
+            throw SequenceConfigException::invalidModelClass((string) $class);
         }
 
         return $class;
     }
 
-    private function rollNumberModel(): Model
+    private function sequenceModel(): Model
     {
-        $modelClass = $this->rollNumberModelClass();
+        $modelClass = $this->sequenceModelClass();
 
         /** @var Model $model */
         $model = new $modelClass();
 
-        $connection = config('roll-number.connection');
+        $connection = config('sequence.connection');
         if (is_string($connection) && $connection !== '') {
             $model->setConnection($connection);
         }
@@ -264,8 +264,8 @@ final readonly class NextRollNumber
         return $model;
     }
 
-    private function rollNumberQuery()
+    private function sequenceQuery()
     {
-        return $this->rollNumberModel()->newQuery();
+        return $this->sequenceModel()->newQuery();
     }
 }

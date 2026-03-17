@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Models;
+namespace Hatchyu\Sequence\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Override;
 
-class RollNumber extends Model
+class Sequence extends Model
 {
     /**
      * The attributes that are mass assignable.
@@ -23,7 +23,7 @@ class RollNumber extends Model
     #[Override]
     public function getTable(): string
     {
-        return $this->table ?? config('roll-number.table', 'roll_numbers');
+        return $this->table ?? config('sequence.table', 'sequences');
     }
 
     #[Override]

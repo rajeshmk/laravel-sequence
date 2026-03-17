@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Hatchyu\RollNumber\Models\RollNumber;
-use Hatchyu\RollNumber\Support\NextRollNumber;
-use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Hatchyu\Sequence\Models\Sequence;
+use Hatchyu\Sequence\Support\NextSequence;
+use Hatchyu\Sequence\Support\SequenceConfig;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -43,16 +43,16 @@ $capsule->bootEloquent();
 $container = new Container();
 Container::setInstance($container);
 $container->instance('config', new ConfigRepository([
-    'roll-number' => [
-        'table' => 'roll_numbers',
+    'sequence' => [
+        'table' => 'sequences',
         'connection' => null,
-        'model' => RollNumber::class,
+        'model' => Sequence::class,
         'strict_mode' => true,
     ],
 ]));
 $container->instance('events', new Dispatcher($container));
 
-Capsule::schema()->create('roll_numbers', function (Blueprint $table): void {
+Capsule::schema()->create('sequences', function (Blueprint $table): void {
     $table->id();
     $table->string('name', 100);
     $table->string('group_by', 250)->default('');
@@ -65,30 +65,30 @@ Capsule::schema()->create('roll_numbers', function (Blueprint $table): void {
 $conn = Capsule::connection();
 
 $conn->transaction(function (): void {
-    assertSameString('1', roll_number('sequence_number')->next(), 'ungrouped first number');
-    assertSameString('2', roll_number('sequence_number')->next(), 'ungrouped second number');
+    assertSameString('1', sequence('sequence_number')->next(), 'ungrouped first number');
+    assertSameString('2', sequence('sequence_number')->next(), 'ungrouped second number');
 
-    assertSameString('C001', roll_number('category_code', 'C', 3)->next(), 'prefix/minLength first number');
-    assertSameString('C002', roll_number('category_code', 'C', 3)->next(), 'prefix/minLength second number');
+    assertSameString('C001', sequence('category_code', 'C', 3)->next(), 'prefix/minLength first number');
+    assertSameString('C002', sequence('category_code', 'C', 3)->next(), 'prefix/minLength second number');
 
     $customer = new CustomerStub();
 
-    $configA = RollNumberConfig::create('CU', 3)->groupBy('branch', 'A');
-    $configB = RollNumberConfig::create('CU', 3)->groupBy('branch', 'B');
+    $configA = SequenceConfig::create('CU', 3)->groupBy('branch', 'A');
+    $configB = SequenceConfig::create('CU', 3)->groupBy('branch', 'B');
 
     assertSameString(
         'CU001',
-        NextRollNumber::createForModel($customer, 'customer_code', $configA)->next(),
+        NextSequence::createForModel($customer, 'customer_code', $configA)->next(),
         'group A first number'
     );
     assertSameString(
         'CU002',
-        NextRollNumber::createForModel($customer, 'customer_code', $configA)->next(),
+        NextSequence::createForModel($customer, 'customer_code', $configA)->next(),
         'group A second number'
     );
     assertSameString(
         'CU001',
-        NextRollNumber::createForModel($customer, 'customer_code', $configB)->next(),
+        NextSequence::createForModel($customer, 'customer_code', $configB)->next(),
         'group B first number'
     );
 });

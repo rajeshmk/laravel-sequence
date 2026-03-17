@@ -6,4 +6,6 @@
 /pint.json
 /pint*.json
 /rector.php
-scripts/test_concurrency.db
+/scripts/test_concurrency.db
+/scripts/test_concurrency.db-shm
+/scripts/test_concurrency.db-wal

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Events;
+namespace Hatchyu\Sequence\Events;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-final readonly class RollNumberAssigned
+final readonly class SequenceAssigned
 {
     use Dispatchable;
     use SerializesModels;

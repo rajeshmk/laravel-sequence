@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Exceptions;
+namespace Hatchyu\Sequence\Exceptions;
 
 use Throwable;
 
-class RollNumberConfigException extends RollNumberException
+class SequenceConfigException extends SequenceException
 {
     public const int CODE_MIN_LENGTH_NEGATIVE = 100;
 

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Support;
+namespace Hatchyu\Sequence\Support;
 
 use Closure;
-use Hatchyu\RollNumber\Exceptions\RollNumberConfigException;
-use Hatchyu\RollNumber\Exceptions\RollNumberModelException;
+use Hatchyu\Sequence\Exceptions\SequenceConfigException;
+use Hatchyu\Sequence\Exceptions\SequenceModelException;
 use Illuminate\Database\Eloquent\Model;
 
-final class RollNumberConfig
+final class SequenceConfig
 {
     private array $groupByKeys = [];
 
@@ -129,7 +129,7 @@ final class RollNumberConfig
     private function setMinimumLength(int $length): void
     {
         if ($length < 0) {
-            throw RollNumberConfigException::minimumLengthMustBeNonNegative();
+            throw SequenceConfigException::minimumLengthMustBeNonNegative();
         }
 
         $this->minimumLength = $length;
@@ -138,7 +138,7 @@ final class RollNumberConfig
     private function setRolloverLimit(int $limit): void
     {
         if ($limit < 0) {
-            throw RollNumberConfigException::rolloverLimitMustBeNonNegative();
+            throw SequenceConfigException::rolloverLimitMustBeNonNegative();
         }
 
         $this->rolloverLimit = $limit;
@@ -147,12 +147,12 @@ final class RollNumberConfig
     private function validateModel(Model $model): void
     {
         if (! $model->exists) {
-            throw RollNumberModelException::modelMustExist();
+            throw SequenceModelException::modelMustExist();
         }
 
         // Prevent potential issues with models that use non-string keys (e.g., composite keys).
         if (! is_string($model->getKeyName())) {
-            throw RollNumberModelException::modelKeyMustBeString();
+            throw SequenceModelException::modelKeyMustBeString();
         }
     }
 }

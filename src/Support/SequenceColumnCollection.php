@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Support;
+namespace Hatchyu\Sequence\Support;
 
 final class SequenceColumnCollection
 {
     /**
-     * @var array<string, RollNumberConfig>
+     * @var array<string, SequenceConfig>
      */
     private array $columns = [];
 
@@ -21,7 +21,7 @@ final class SequenceColumnCollection
         return new self();
     }
 
-    public function column(string $column, RollNumberConfig $config): self
+    public function column(string $column, SequenceConfig $config): self
     {
         $this->columns[$column] = $config;
 
@@ -29,7 +29,7 @@ final class SequenceColumnCollection
     }
 
     /**
-     * @return array<string, RollNumberConfig>
+     * @return array<string, SequenceConfig>
      */
     public function get(): array
     {

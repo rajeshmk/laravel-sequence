@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Exceptions;
+namespace Hatchyu\Sequence\Exceptions;
 
 use Throwable;
 
-class RollNumberModelException extends RollNumberException
+class SequenceModelException extends SequenceException
 {
     public const int CODE_MODEL_KEY_MUST_BE_STRING = 200;
 
@@ -19,7 +19,7 @@ class RollNumberModelException extends RollNumberException
 
     public static function modelMustBePersisted(?Throwable $previous = null): self
     {
-        return new self(__('Model must be persisted before generating roll number.'), self::CODE_MODEL_MUST_BE_PERSISTED, $previous);
+        return new self(__('Model must be persisted before generating a sequence number.'), self::CODE_MODEL_MUST_BE_PERSISTED, $previous);
     }
 
     public static function modelMustExist(?Throwable $previous = null): self

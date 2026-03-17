@@ -13,7 +13,7 @@ return new class() extends Migration
      */
     public function up(): void
     {
-        Schema::create('roll_numbers', function (Blueprint $table): void {
+        Schema::create('sequences', function (Blueprint $table): void {
             $table->id();
 
             $table->string('name', 100);
@@ -34,6 +34,6 @@ return new class() extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('roll_numbers');
+        Schema::dropIfExists('sequences');
     }
 };

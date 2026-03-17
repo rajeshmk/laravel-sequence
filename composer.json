@@ -1,6 +1,6 @@
 {
-    "name": "hatchyu/laravel-roll-number",
-    "description": "The Hatchyu RollNumber package.",
+    "name": "hatchyu/laravel-sequence",
+    "description": "The Laravel Sequence package provides a simple way to generate sequential numbers for your models.",
     "license": "MIT",
     "authors": [
         {
@@ -21,10 +21,10 @@
     },
     "autoload": {
         "psr-4": {
-            "Hatchyu\\RollNumber\\": "src"
+            "Hatchyu\\Sequence\\": "src"
         },
         "files": [
-            "helper-functions/roll-number-helpers.php"
+            "helper-functions/sequence-helpers.php"
         ]
     },
     "extra": {
@@ -33,7 +33,7 @@
         },
         "laravel": {
             "providers": [
-                "Hatchyu\\RollNumber\\RollNumberServiceProvider"
+                "Hatchyu\\Sequence\\SequenceServiceProvider"
             ]
         }
     },
