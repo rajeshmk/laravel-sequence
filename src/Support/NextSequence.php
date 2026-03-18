@@ -38,9 +38,9 @@ final readonly class NextSequence
         $this->ensureDbTransaction();
     }
 
-    public static function create(string $name, string $prefix = '', int $padLength = 0): static
+    public static function create(string $name): static
     {
-        $config = SequenceConfig::create($prefix, $padLength);
+        $config = SequenceConfig::create();
 
         return new self(trim($name), $config);
     }
@@ -55,6 +55,48 @@ final readonly class NextSequence
     public function groupBy(int|string|Model ...$groups): self
     {
         $this->config->groupBy(...$groups);
+
+        return $this;
+    }
+
+    public function groupByYear(): self
+    {
+        $this->config->groupByYear();
+
+        return $this;
+    }
+
+    public function groupByMonth(): self
+    {
+        $this->config->groupByMonth();
+
+        return $this;
+    }
+
+    public function groupByDay(): self
+    {
+        $this->config->groupByDay();
+
+        return $this;
+    }
+
+    public function prefix(string $prefix): self
+    {
+        $this->config->prefix($prefix);
+
+        return $this;
+    }
+
+    public function padLength(int $length): self
+    {
+        $this->config->padLength($length);
+
+        return $this;
+    }
+
+    public function format(string $format): self
+    {
+        $this->config->format($format);
 
         return $this;
     }
@@ -232,7 +274,7 @@ final readonly class NextSequence
 
     private function paddedNumber(int $number): string
     {
-        $padLength = $this->config->padLength();
+        $padLength = $this->config->getPadLength();
 
         return $padLength > 0
             ? str_pad((string) $number, $padLength, '0', STR_PAD_LEFT)

@@ -8,14 +8,17 @@ use Hatchyu\Sequence\Support\SequenceConfig;
 use Illuminate\Database\Eloquent\Model;
 
 it('creates config from array and returns prefix and pad length', function () {
-    $config = SequenceConfig::create('TEST', 3);
+    $config = SequenceConfig::create()
+        ->prefix('TEST')
+        ->padLength(3)
+    ;
 
     expect($config->getPrefix())->toBe('TEST');
-    expect($config->padLength())->toBe(3);
+    expect($config->getPadLength())->toBe(3);
 });
 
 it('throws when pad length negative', function () {
-    expect(fn () => SequenceConfig::create('', -1))
+    expect(fn () => SequenceConfig::create()->padLength(-1))
         ->toThrow(SequenceConfigException::class)
     ;
 });

@@ -119,12 +119,132 @@ it('cycles when configured', function () {
     expect($values)->toBe(['1', '2', '1']);
 });
 
+it('supports fluent prefix and pad length configuration', function () {
+    $value = app('db')->transaction(
+        fn () => sequence('category_code')
+            ->prefix('C')
+            ->padLength(3)
+            ->next()
+    );
+
+    expect($value)->toBe('C001');
+});
+
 it('supports custom format templates with a placeholder', function () {
     $value = app('db')->transaction(
         fn () => sequence('invoice')
-            ->config(fn ($c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+            ->format('INV/' . date('Ymd') . '/?')
+            ->padLength(4)
             ->next()
     );
 
     expect($value)->toBe('INV/' . date('Ymd') . '/0001');
+});
+
+it('does not reset the counter when only the prefix changes', function () {
+    $first = app('db')->transaction(
+        fn () => sequence('batch_code')
+            ->prefix('2026')
+            ->padLength(2)
+            ->next()
+    );
+
+    $second = app('db')->transaction(
+        fn () => sequence('batch_code')
+            ->prefix('2027')
+            ->padLength(2)
+            ->next()
+    );
+
+    expect($first)->toBe('202601')
+        ->and($second)->toBe('202702')
+    ;
+});
+
+it('does not reset the counter when only the format changes', function () {
+    $first = app('db')->transaction(
+        fn () => sequence('invoice')
+            ->format('INV/20260318/?')
+            ->padLength(4)
+            ->next()
+    );
+
+    $second = app('db')->transaction(
+        fn () => sequence('invoice')
+            ->format('INV/20260319/?')
+            ->padLength(4)
+            ->next()
+    );
+
+    expect($first)->toBe('INV/20260318/0001')
+        ->and($second)->toBe('INV/20260319/0002')
+    ;
+});
+
+it('resets the counter when grouped by year-like values', function () {
+    $first = app('db')->transaction(
+        fn () => sequence('batch_code')
+            ->prefix('2026')
+            ->padLength(2)
+            ->groupBy('2026')
+            ->next()
+    );
+
+    $second = app('db')->transaction(
+        fn () => sequence('batch_code')
+            ->prefix('2026')
+            ->padLength(2)
+            ->groupBy('2026')
+            ->next()
+    );
+
+    $third = app('db')->transaction(
+        fn () => sequence('batch_code')
+            ->prefix('2027')
+            ->padLength(2)
+            ->groupBy('2027')
+            ->next()
+    );
+
+    expect($first)->toBe('202601')
+        ->and($second)->toBe('202602')
+        ->and($third)->toBe('202701')
+    ;
+});
+
+it('supports convenience grouping helpers', function () {
+    $yearlyA = app('db')->transaction(
+        fn () => sequence('yearly_code')
+            ->prefix(date('Y'))
+            ->padLength(2)
+            ->groupByYear()
+            ->next()
+    );
+
+    $yearlyB = app('db')->transaction(
+        fn () => sequence('yearly_code')
+            ->prefix(date('Y'))
+            ->padLength(2)
+            ->groupByYear()
+            ->next()
+    );
+
+    $monthly = app('db')->transaction(
+        fn () => sequence('monthly_code')
+            ->padLength(2)
+            ->groupByMonth()
+            ->next()
+    );
+
+    $daily = app('db')->transaction(
+        fn () => sequence('daily_code')
+            ->padLength(2)
+            ->groupByDay()
+            ->next()
+    );
+
+    expect($yearlyA)->toBe(date('Y') . '01')
+        ->and($yearlyB)->toBe(date('Y') . '02')
+        ->and($monthly)->toBe('01')
+        ->and($daily)->toBe('01');
 });

@@ -32,20 +32,18 @@ final class SequenceConfig
         private string $prefix,
         private int $padLength,
     ) {
-        $this->prefix($prefix, $padLength);
+        $this->prefix($prefix);
+        $this->padLength($padLength);
     }
 
-    public static function create(
-        string $prefix = '',
-        int $padLength = 0,
-    ): self {
-        return new self($prefix, $padLength);
+    public static function create(): self
+    {
+        return new self('', 0);
     }
 
-    public function prefix(string $prefix, int $padLength = 0): self
+    public function prefix(string $prefix): self
     {
         $this->setPrefix($prefix);
-        $this->setPadLength($padLength);
 
         return $this;
     }
@@ -111,7 +109,14 @@ final class SequenceConfig
         return $this->overflowStrategy;
     }
 
-    public function padLength(): int
+    public function padLength(int $length): self
+    {
+        $this->setPadLength($length);
+
+        return $this;
+    }
+
+    public function getPadLength(): int
     {
         return $this->padLength;
     }
@@ -130,6 +135,21 @@ final class SequenceConfig
         }
 
         return $this;
+    }
+
+    public function groupByYear(): self
+    {
+        return $this->groupBy(date('Y'));
+    }
+
+    public function groupByMonth(): self
+    {
+        return $this->groupBy(date('Ym'));
+    }
+
+    public function groupByDay(): self
+    {
+        return $this->groupBy(date('Ymd'));
     }
 
     public function resolveGroupKeyUsing(Closure $callback): self

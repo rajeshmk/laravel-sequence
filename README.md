@@ -10,13 +10,6 @@ Generate sequential numbers (for example `INV-000001`) safely from the database.
 - Laravel: `^10 || ^11 || ^12`
 - Database: uses row-level locking (`SELECT ... FOR UPDATE`) inside transactions to ensure safe concurrent increments.
 
-### Development Requirements
-
-For development and testing:
-- [Pest](https://pestphp.com/) - PHP testing framework
-- [Laravel Pint](https://github.com/laravel/pint) - Code formatter
-- [Rector](https://getrector.org/) - Code refactoring tool
-
 ## Installation
 
 Install via Composer:
@@ -56,6 +49,12 @@ If you publish and customize the migration, keep the unique index on `(name, gro
 Important: Sequence generation must run inside a DB transaction; the package will throw an exception if called outside one.
 Use `->next()` to reserve and return the next value.
 
+### Mental model
+
+- `prefix()` and `format()` control only how the final sequence value is displayed.
+- `groupBy()` determines which counter row is used, so it controls when numbering resets.
+- `padLength()` zero-pads the numeric part on the left, similar to PHP `str_pad(..., STR_PAD_LEFT)`.
+
 ### 1) Simple sequential numbers
 
 Generate an incrementing sequence ("1", "2", "3", ...):
@@ -76,7 +75,10 @@ Provide a prefix and a pad numeric length (padded with zeros):
 
 ```php
 $value = DB::transaction(function () {
-    return sequence('category_code', 'C', 3)->next(); // "C001"
+    return sequence('category_code')
+        ->prefix('C')
+        ->padLength(3)
+        ->next(); // "C001"
 });
 ```
 
@@ -90,11 +92,36 @@ If you want codes like `202601`, `202602`, ... you can pass dynamic prefix value
 
 ```php
 $value = DB::transaction(function () {
-    return sequence('batch_code', date('Y'), 2)->next();
+    return sequence('batch_code')
+        ->prefix(date('Y'))
+        ->padLength(2)
+        ->next();
 });
 ```
 
-Note: changing the prefix or format affects only the returned string. It does not reset the counter by itself. If you want a separate counter per year, month, branch, or tenant, use grouping as well.
+This only prefixes the generated number with the current year. It does not create a separate counter per year.
+
+For example, if the underlying sequence keeps incrementing across years, you might see values like `202601`, `202602`, ... and later `2027100`, `2027101`, ...
+
+`prefix()` and `format()` only control how the final sequence value is displayed. They do not create a new counter or reset numbering.
+
+`groupBy()` determines which counter row is used. Use it whenever numbering should reset by year, month, tenant, branch, or any other grouping key.
+
+For common date-based scopes, you can also use the convenience helpers `groupByYear()`, `groupByMonth()`, and `groupByDay()`.
+
+If you want the number to reset for each new year, month, branch, or tenant, use grouping as well:
+
+```php
+$value = DB::transaction(function () {
+    return sequence('batch_code')
+        ->prefix(date('Y'))
+        ->padLength(2)
+        ->groupByYear()
+        ->next();
+});
+
+// 202601, 202602, ... then 202701, 202702, ...
+```
 
 ### 3b) Custom format templates
 
@@ -105,22 +132,29 @@ use Hatchyu\Sequence\Support\SequenceConfig;
 
 $value = DB::transaction(function () {
     return sequence('invoice')
-        ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+        ->format('INV/' . date('Ymd') . '/?')
+        ->padLength(4)
         ->next();
 });
 ```
 
 The `?` placeholder is replaced with the generated number after padding is applied.
 
+Like `prefix()`, `format()` only changes how the final value is displayed. It does not create a separate counter by itself.
+
+Without grouping, the date part in the formatted output can change while the underlying counter continues increasing. For example, you might see `INV/20260318/0001`, `INV/20260318/0002`, and later `INV/20260319/0100`, `INV/20260319/0101`, ...
+
 If you also want the counter to reset per day, combine the format with grouping:
 
 ```php
 $value = DB::transaction(function () {
     return sequence('invoice')
-        ->groupBy(date('Ymd'))
-        ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+        ->groupByDay()
+        ->format('INV/' . date('Ymd') . '/?')
+        ->padLength(4)
         ->next();
 });
+// INV/20260318/0001, INV/20260318/0002, then INV/20260319/0001, INV/20260319/0002, ...
 ```
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
@@ -150,10 +184,10 @@ If you need a custom token format (e.g., `tenantId:year:branch`), you can provid
 use Hatchyu\Sequence\Support\SequenceConfig;
 
 $sequence = sequence('invoice')
-    ->config(fn (SequenceConfig $c) =>
+    ->config(function (SequenceConfig $c) use ($tenantId, $branchId) {
         $c->resolveGroupKeyUsing(fn (array $keys) => implode(':', $keys))
-          ->groupBy($tenantId, date('Y'), $branchId)
-    )
+            ->groupBy($tenantId, date('Y'), $branchId);
+    })
     ->next();
 
 // Example token: 12:2026:3
@@ -164,60 +198,38 @@ Notes:
 - You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
 - Models must exist in the database before being used for grouping.
 
-### Example patterns (from real-world usage)
+### Common recipes
 
-Simple sequence:
-
-```php
-DB::transaction(fn () => sequence('simple_sequence')->next());
-// 1, 2, 3, ...
-```
-
-Prefixed with zero-padding:
+Yearly reset with the year shown in the output:
 
 ```php
-DB::transaction(fn () => sequence('prefixed_category_code', 'C', 3)->next());
-// C001, C002, C003, ...
-```
-
-Year-prefixed numeric:
-
-```php
-DB::transaction(fn () => sequence('cv_number_prefixed_by_year', date('Y'), 2)->next());
-// 202601, 202602, 202603, ...
-```
-
-Templated prefix:
-
-```php
-$prefix = 'JOB/' . date('Y') . '/';
-DB::transaction(fn () => sequence('custom_job_code', $prefix, 2)->next());
-// JOB/2026/01, JOB/2026/02, ...
-```
-
-Grouped by year, with a separate counter per year:
-
-```php
-DB::transaction(fn () => sequence('batch_code_grouped_by_year', date('Y'), 2)->groupBy(date('Y'))->next());
+DB::transaction(fn () => sequence('batch_code_grouped_by_year')
+    ->prefix(date('Y'))
+    ->padLength(2)
+    ->groupByYear()
+    ->next()
+);
 // 202601, 202602, ... then 202701, 202702, ...
 ```
 
-Multiple grouping keys (tenant, branch, year):
+Separate counters by multiple grouping keys (tenant, branch, year):
 
 ```php
 DB::transaction(function () {
-    return sequence('invoice_tenant_branch_year_wise', '', 2)
+    return sequence('invoice_tenant_branch_year_wise')
+        ->padLength(2)
         ->groupBy(1, 2, date('Y'))
         ->next();
 });
 ```
 
-Invoice number with date in the output and a per-day reset:
+Invoice number with a date in the output and a per-day reset:
 
 ```php
 DB::transaction(fn () => sequence('daily_invoice')
-    ->groupBy(date('Ymd'))
-    ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+    ->groupByDay()
+    ->format('INV/' . date('Ymd') . '/?')
+    ->padLength(4)
     ->next()
 );
 // INV/20260318/0001, INV/20260318/0002, then INV/20260319/0001
@@ -242,7 +254,9 @@ class CustomerProfile extends Model
         return SequenceColumnCollection::collection()
             ->column(
                 'customer_code',
-                SequenceConfig::create('CU', 3)
+                SequenceConfig::create()
+                    ->prefix('CU')
+                    ->padLength(3)
                     // optional: make sequence per-branch (or per branch+year, etc.)
                     ->groupBy($this->branch_id)
             );
@@ -265,9 +279,9 @@ protected function sequenceColumns(): SequenceColumnCollection
         ->column(
             'invoice_number',
             SequenceConfig::create()
-                ->groupBy(date('Ymd'))
+                ->groupByDay()
                 ->format('INV/' . date('Ymd') . '/?')
-                ->prefix('', 4)
+                ->padLength(4)
         );
 }
 ```
@@ -280,7 +294,9 @@ protected function sequenceColumns(): SequenceColumnCollection
     return SequenceColumnCollection::collection()
         ->column(
             'admission_number',
-            SequenceConfig::create('ADM', 3)
+            SequenceConfig::create()
+                ->prefix('ADM')
+                ->padLength(3)
         )
         ->column(
             'attendance_number',
@@ -294,10 +310,16 @@ protected function sequenceColumns(): SequenceColumnCollection
 
 ## API reference
 
-- Helper: `sequence(string $name, string $prefix = '', int $padLength = 0)` — returns a `NextSequence` instance.
+- Helper: `sequence(string $name)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
+- Convenience helpers: `->groupByYear()`, `->groupByMonth()`, and `->groupByDay()` for common date-based counter scopes.
+- Call `->prefix(string $prefix)` to prepend a static or dynamic string.
+- Call `->padLength(int $length)` to zero-pad the numeric part on the left.
+- Call `->format(string $format)` to use a custom output template with a `?` placeholder.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
-- `SequenceConfig::prefix(string $prefix, int $padLength = 0)` — configure a simple prefix + zero-padding output.
+- `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
+- `SequenceConfig::prefix(string $prefix)` — configure a prefix.
+- `SequenceConfig::padLength(int $length)` — configure zero-padding for the numeric part.
 - `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.
 - `SequenceConfig::range(int $min, ?int $max = null)` — set min/max bounds.
 - `SequenceConfig::bounded(int $min, int $max)` — range + throw on overflow.
@@ -309,7 +331,9 @@ protected function sequenceColumns(): SequenceColumnCollection
 Example:
 
 ```php
-$next = sequence('orders', 'ORD-', 6)
+$next = sequence('orders')
+    ->prefix('ORD-')
+    ->padLength(6)
     ->groupBy($customerId, date('Y'))
     ->next();
 ```
@@ -319,10 +343,11 @@ Example with config callback:
 ```php
 use Hatchyu\Sequence\Support\SequenceConfig;
 
-$next = sequence('range_test', '', 2)
+$next = sequence('range_test')
+    ->padLength(2)
     ->config(function (SequenceConfig $config) {
         $config->range(1, 7)
-            ->groupBy(date('Y'));
+            ->groupByYear();
     })
     ->next();
 ```
@@ -355,19 +380,23 @@ Notes:
 Example (throw on overflow):
 
 ```php
-DB::transaction(fn () => sequence('orders', 'ORD-', 4)
-    ->config(fn ($c) => $c->bounded(1, 9999))
+DB::transaction(fn () => sequence('orders')
+    ->prefix('ORD-')
+    ->padLength(4)
+    ->config(fn (SequenceConfig $c) => $c->bounded(1, 9999))
     ->next()
 );
+// ORD-0001, ORD-0002, ... ORD-9999, then throws SequenceOverflowException
 ```
 
 Example (cycle back to min):
 
 ```php
 DB::transaction(fn () => sequence('sessions')
-    ->config(fn ($c) => $c->cyclingRange(1, 10))
+    ->config(fn (SequenceConfig $c) => $c->cyclingRange(1, 10))
     ->next()
 );
+// 1, 2, 3, ... 10, 1, 2, ...
 ```
 
 See the error handling section below for a `SequenceOverflowException` catch example. Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
@@ -561,19 +590,6 @@ The `scripts/` directory contains regression testing scripts:
 php scripts/regression_first_number.php
 
 # Test concurrency with multiple processes (requires pcntl extension)
-php scripts/regression_concurrency.php
-```
-
-### Code Quality
-
-```bash
-# Run Laravel Pint for code formatting
-./vendor/bin/pint
-
-# Run Rector for code refactoring
-./vendor/bin/rector process
-
-# Run the concurrency regression script
 php scripts/regression_concurrency.php
 ```
 

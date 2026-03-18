@@ -68,13 +68,13 @@ $conn->transaction(function (): void {
     assertSameString('1', sequence('sequence_number')->next(), 'ungrouped first number');
     assertSameString('2', sequence('sequence_number')->next(), 'ungrouped second number');
 
-    assertSameString('C001', sequence('category_code', 'C', 3)->next(), 'prefix/minLength first number');
-    assertSameString('C002', sequence('category_code', 'C', 3)->next(), 'prefix/minLength second number');
+    assertSameString('C001', sequence('category_code')->prefix('C')->padLength(3)->next(), 'prefix/minLength first number');
+    assertSameString('C002', sequence('category_code')->prefix('C')->padLength(3)->next(), 'prefix/minLength second number');
 
     $customer = new CustomerStub();
 
-    $configA = SequenceConfig::create('CU', 3)->groupBy('branch', 'A');
-    $configB = SequenceConfig::create('CU', 3)->groupBy('branch', 'B');
+    $configA = SequenceConfig::create()->prefix('CU')->padLength(3)->groupBy('branch', 'A');
+    $configB = SequenceConfig::create()->prefix('CU')->padLength(3)->groupBy('branch', 'B');
 
     assertSameString(
         'CU001',
