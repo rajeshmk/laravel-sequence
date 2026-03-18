@@ -1,6 +1,6 @@
 {
     "name": "hatchyu/laravel-sequence",
-    "description": "The Laravel Sequence package provides a simple way to generate sequential numbers for your models.",
+    "description": "Generate transaction-safe sequential numbers in Laravel with grouping, formatting, and model integration.",
     "license": "MIT",
     "authors": [
         {
