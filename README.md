@@ -1,6 +1,14 @@
 # Sequence (Laravel Package)
 
-Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and pad length, custom format templates, min/max ranges, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
+[![Latest Stable Version](https://poser.pugx.org/hatchyu/laravel-sequence/v)](https://packagist.org/packages/hatchyu/laravel-sequence)
+[![Total Downloads](https://poser.pugx.org/hatchyu/laravel-sequence/downloads)](https://packagist.org/packages/hatchyu/laravel-sequence)
+[![License](https://poser.pugx.org/hatchyu/laravel-sequence/license)](https://packagist.org/packages/hatchyu/laravel-sequence)
+[![PHP](https://img.shields.io/badge/PHP-%5E8.3-777BB4?logo=php)](https://packagist.org/packages/hatchyu/laravel-sequence)
+[![Laravel](https://img.shields.io/badge/Laravel-10%20%7C%2011%20%7C%2012-FF2D20?logo=laravel)](https://packagist.org/packages/hatchyu/laravel-sequence)
+
+> **The Problem:** Generating sequential, human-readable numbers—like `INV-0001` or `ORD-2026-001`—is surprisingly difficult in a highly concurrent Laravel application. Relying on simple database counts or `max()` queries inevitably leads to race conditions, duplicate numbers, and database query crashes.
+>
+> **The Solution:** A bulletproof, transaction-safe sequence generator. Using precise row-level database locking (`SELECT ... FOR UPDATE`), this package guarantees perfectly incremental, gapless numbers even under extreme server load. Effortlessly create formatted sequences with customized prefixes and zero-padding, isolate counters by dynamic groups (like per-tenant or per-year), and auto-assign them to your Eloquent models using a convenient `HasSequence` trait.
 
 **Quick summary:** use the `sequence()` helper inside a DB transaction to generate numbers, or add the `HasSequence` trait to models to auto-assign a column on `creating`.
 
@@ -312,12 +320,15 @@ protected function sequenceColumns(): SequenceColumnCollection
 
 - Helper: `sequence(string $name)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
+- Call `->belongsTo(...$models)` — an expressive alias for `groupBy()` when scoping counters by parent Eloquent models.
 - Convenience helpers: `->groupByYear()`, `->groupByMonth()`, and `->groupByDay()` for common date-based counter scopes.
+- Call `->step(int $amount)` to define a custom increment step (default `1`).
 - Call `->prefix(string $prefix)` to prepend a static or dynamic string.
 - Call `->padLength(int $length)` to zero-pad the numeric part on the left.
 - Call `->format(string $format)` to use a custom output template with a `?` placeholder.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
 - `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
+- `SequenceConfig::step(int $amount)` — configure a custom increment step.
 - `SequenceConfig::prefix(string $prefix)` — configure a prefix.
 - `SequenceConfig::padLength(int $length)` — configure zero-padding for the numeric part.
 - `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.

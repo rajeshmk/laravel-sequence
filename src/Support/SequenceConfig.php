@@ -28,6 +28,8 @@ final class SequenceConfig
 
     private ?string $format = null;
 
+    private int $step = 1;
+
     private function __construct(
         private string $prefix,
         private int $padLength,
@@ -119,6 +121,18 @@ final class SequenceConfig
     public function getPadLength(): int
     {
         return $this->padLength;
+    }
+
+    public function step(int $step): self
+    {
+        $this->setStep($step);
+
+        return $this;
+    }
+
+    public function getStep(): int
+    {
+        return $this->step;
     }
 
     public function belongsTo(Model ...$models): self
@@ -246,6 +260,15 @@ final class SequenceConfig
         $this->max = $max;
 
         return $this;
+    }
+
+    private function setStep(int $step): void
+    {
+        if ($step < 1) {
+            throw SequenceConfigException::stepMustBeAtLeastOne();
+        }
+
+        $this->step = $step;
     }
 
     private function validateModel(Model $model): void
