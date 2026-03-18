@@ -28,3 +28,11 @@ it('throws when grouping by non-persisted model', function () {
         ->toThrow(SequenceModelException::class)
     ;
 });
+
+it('throws when max is less than min', function () {
+    $cfg = SequenceConfig::create();
+
+    expect(fn () => $cfg->range(10, 5))
+        ->toThrow(SequenceConfigException::class)
+    ;
+});

@@ -8,7 +8,7 @@ use Closure;
 use Hatchyu\Sequence\Enums\OverflowStrategy;
 use Hatchyu\Sequence\Events\SequenceAssigned;
 use Hatchyu\Sequence\Exceptions\SequenceConfigException;
-use Hatchyu\Sequence\Exceptions\SequenceException;
+use Hatchyu\Sequence\Exceptions\SequenceOverflowException;
 use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 use Hatchyu\Sequence\Exceptions\SequenceValidationException;
 use Hatchyu\Sequence\Models\Sequence;
@@ -27,7 +27,7 @@ final readonly class NextSequence
     /**
      * Private constructor.
      *
-     * Roll number generation must be executed from within a DB transaction.
+     * Sequence generation must be executed from within a DB transaction.
      */
     private function __construct(
         private string $name,
@@ -190,13 +190,7 @@ final readonly class NextSequence
         return match ($this->config->getOverflowStrategy()) {
             OverflowStrategy::CYCLE => $min,
 
-            // @TODO - do not use package's top level exception class SequenceException
-            OverflowStrategy::FAIL => throw new SequenceException(
-                __('Sequence limit reached for :name at :max', [
-                    'name' => $sequence->name,
-                    'max' => $max,
-                ])
-            ),
+            OverflowStrategy::FAIL => throw SequenceOverflowException::limitReached($sequence->name, $max),
         };
     }
 
@@ -216,7 +210,7 @@ final readonly class NextSequence
         $sequence->forceFill([
             'name' => $this->name,
             'group_by' => $this->config->groupByToken(),
-            'last_number' => 1,
+            'last_number' => $this->config->getMin(),
         ]);
         $sequence->save();
 

@@ -238,6 +238,11 @@ protected function sequenceColumns(): SequenceColumnCollection
 - Helper: `sequence(string $name, string $prefix = '', int $padLength = 0)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
+- `SequenceConfig::range(int $min, ?int $max = null)` — set min/max bounds.
+- `SequenceConfig::bounded(int $min, int $max)` — range + throw on overflow.
+- `SequenceConfig::cyclingRange(int $min, int $max)` — range + cycle on overflow.
+- `SequenceConfig::cycle()` — wrap to min when max is reached.
+- `SequenceConfig::throwOnOverflow()` — throw when max is reached (default).
 - Call `->next(): string` to reserve and return the next sequence value.
 
 Example:
@@ -273,7 +278,31 @@ Note: `config()` is just a convenience. You can still chain `groupBy()` or other
 
 ## Range and overflow
 
-The package supports min/max ranges via `SequenceConfig::range()`. When the max is reached, the next number either wraps to the min (use `->cycle()`) or throws an exception (default `FAIL`). Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
+The package supports min/max ranges via `SequenceConfig::range()`, `SequenceConfig::bounded()`, and `SequenceConfig::cyclingRange()`.
+
+- `range($min, $max)` sets the allowed range (inclusive). The default overflow behavior is to throw a `SequenceOverflowException` when `max` is reached.
+- `bounded($min, $max)` is a convenience wrapper that sets the range and keeps the default "fail" overflow behavior.
+- `cyclingRange($min, $max)` wraps back to `min` when `max` is reached.
+
+Example (throw on overflow):
+
+```php
+DB::transaction(fn () => sequence('orders', 'ORD-', 4)
+    ->config(fn ($c) => $c->bounded(1, 9999))
+    ->next()
+);
+```
+
+Example (cycle back to min):
+
+```php
+DB::transaction(fn () => sequence('sessions')
+    ->config(fn ($c) => $c->cyclingRange(1, 10))
+    ->next()
+);
+```
+
+See the error handling section below for a `SequenceOverflowException` catch example. Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
 
 ## Customization (Config)
 
@@ -380,12 +409,16 @@ The package throws `Hatchyu\Sequence\Exceptions\SequenceException` (a `RuntimeEx
 - `SequenceConfigException` — invalid configuration values
   - `CODE_PAD_LENGTH_NEGATIVE` (100) — pad length is negative
   - `CODE_MIN_NEGATIVE` (101) — min value is negative
-  - `CODE_MAX_TOO_SMALL` (103) — max value is less than 1
-  - `CODE_INVALID_MODEL_CLASS` (102) — configured model class is invalid
+  - `CODE_MAX_TOO_SMALL` (102) — max value is less than 1
+  - `CODE_MAX_LESS_THAN_MIN` (103) — max value is less than min value
+  - `CODE_INVALID_MODEL_CLASS` (104) — configured model class is invalid
 
 - `SequenceModelException` — invalid or unsaved models
   - `CODE_MODEL_KEY_MUST_BE_STRING` (200) — model key is not a string
   - `CODE_MODEL_MUST_BE_PERSISTED` (201) — model must be saved before grouping
+
+- `SequenceOverflowException` — max reached while overflow strategy is `FAIL`
+  - `CODE_SEQUENCE_OVERFLOW` (500) — sequence max reached
 
 You can catch either the base class or a specific subclass depending on how granular you want the handling to be. Each exception includes a specific error code for programmatic handling.
 
@@ -393,10 +426,14 @@ Example:
 
 ```php
 use Hatchyu\Sequence\Exceptions\SequenceException;
+use Hatchyu\Sequence\Exceptions\SequenceOverflowException;
 use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 
 try {
     DB::transaction(fn () => sequence('orders')->next());
+} catch (SequenceOverflowException $e) {
+    // max reached and overflow strategy is FAIL
+    throw $e;
 } catch (SequenceTransactionException $e) {
     if ($e->getCode() === SequenceTransactionException::CODE_TRANSACTION_NOT_INITIATED) {
         // handle missing transaction specifically

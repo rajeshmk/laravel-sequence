@@ -144,6 +144,10 @@ final class SequenceConfig
         return $this->groupByToken;
     }
 
+    // -------------------------------------------------------------------------
+    // Private functions
+    // -------------------------------------------------------------------------
+
     private function setOverflowStrategy(OverflowStrategy $strategy): self
     {
         $this->overflowStrategy = $strategy;
@@ -185,6 +189,10 @@ final class SequenceConfig
 
         if ($max !== null && $max < 1) {
             throw SequenceConfigException::maxMustBeAtLeastOne();
+        }
+
+        if ($max !== null && $max < $min) {
+            throw SequenceConfigException::maxMustBeGreaterOrEqualMin($min);
         }
 
         $this->min = $min;

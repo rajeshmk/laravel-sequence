@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Hatchyu\Sequence\Exceptions\SequenceConfigException;
 use Hatchyu\Sequence\Exceptions\SequenceModelException;
+use Hatchyu\Sequence\Exceptions\SequenceOverflowException;
 use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 use Hatchyu\Sequence\Exceptions\SequenceValidationException;
 
@@ -18,6 +19,9 @@ it('assigns config exception codes', function () {
 
     $ex = SequenceConfigException::maxMustBeAtLeastOne();
     expect($ex->getCode())->toBe(SequenceConfigException::CODE_MAX_TOO_SMALL);
+
+    $ex = SequenceConfigException::maxMustBeGreaterOrEqualMin(5);
+    expect($ex->getCode())->toBe(SequenceConfigException::CODE_MAX_LESS_THAN_MIN);
 
     $ex = SequenceConfigException::invalidModelClass('App\\Models\\Sequence');
     expect($ex->getCode())->toBe(SequenceConfigException::CODE_INVALID_MODEL_CLASS);
@@ -54,4 +58,11 @@ it('assigns validation exception codes', function () {
 
     $ex = SequenceValidationException::groupByTokenTooLong(10);
     expect($ex->getCode())->toBe(SequenceValidationException::CODE_GROUP_BY_TOKEN_TOO_LONG);
+});
+
+it('assigns overflow exception codes', function () {
+    $ex = SequenceOverflowException::limitReached('orders', 9);
+    expect($ex)->toBeInstanceOf(SequenceOverflowException::class)
+        ->and($ex->getCode())->toBe(SequenceOverflowException::CODE_SEQUENCE_OVERFLOW)
+    ;
 });
