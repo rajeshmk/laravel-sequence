@@ -175,7 +175,7 @@ final readonly class NextSequence
         $lastNumber = $this->calculateNextNumber($sequence);
 
         $sequence->forceFill(['last_number' => $lastNumber]);
-        $sequence->save();
+        $sequence->saveQuietly();
 
         return $sequence;
     }
@@ -255,7 +255,7 @@ final readonly class NextSequence
             'group_by' => $this->config->groupByToken(),
             'last_number' => $this->config->getMin(),
         ]);
-        $sequence->save();
+        $sequence->saveQuietly();
 
         return $sequence;
     }
