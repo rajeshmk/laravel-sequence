@@ -36,3 +36,17 @@ it('throws when max is less than min', function () {
         ->toThrow(SequenceConfigException::class)
     ;
 });
+
+it('stores a custom format template', function () {
+    $config = SequenceConfig::create()->format('INV/' . date('Ymd') . '/?');
+
+    expect($config->getFormat())->toBe('INV/' . date('Ymd') . '/?');
+});
+
+it('throws when format is missing the placeholder', function () {
+    $cfg = SequenceConfig::create();
+
+    expect(fn () => $cfg->format('INV/' . date('Ymd')))
+        ->toThrow(SequenceConfigException::class)
+    ;
+});

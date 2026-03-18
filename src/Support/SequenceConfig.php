@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Model;
 
 final class SequenceConfig
 {
+    private const string FORMAT_PLACEHOLDER = '?';
+
     private array $groupByKeys = [];
 
     private ?Closure $groupKeyResolver = null;
@@ -23,6 +25,8 @@ final class SequenceConfig
     private ?int $max = null;
 
     private OverflowStrategy $overflowStrategy = OverflowStrategy::FAIL;
+
+    private ?string $format = null;
 
     private function __construct(
         private string $prefix,
@@ -49,6 +53,18 @@ final class SequenceConfig
     public function getPrefix(): string
     {
         return $this->prefix;
+    }
+
+    public function format(string $format): self
+    {
+        $this->setFormat($format);
+
+        return $this;
+    }
+
+    public function getFormat(): ?string
+    {
+        return $this->format;
     }
 
     public function range(int $min, ?int $max = null): self
@@ -179,6 +195,17 @@ final class SequenceConfig
         }
 
         $this->padLength = $length;
+    }
+
+    private function setFormat(string $format): void
+    {
+        $format = trim($format);
+
+        if (! str_contains($format, self::FORMAT_PLACEHOLDER)) {
+            throw SequenceConfigException::formatPlaceholderMissing();
+        }
+
+        $this->format = $format;
     }
 
     private function setRange(int $min, ?int $max = null): self

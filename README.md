@@ -1,6 +1,6 @@
 # Sequence (Laravel Package)
 
-Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and pad length, min/max ranges, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
+Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and pad length, custom format templates, min/max ranges, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
 
 **Quick summary:** use the `sequence()` helper inside a DB transaction to generate numbers, or add the `HasSequence` trait to models to auto-assign a column on `creating`.
 
@@ -16,7 +16,6 @@ For development and testing:
 - [Pest](https://pestphp.com/) - PHP testing framework
 - [Laravel Pint](https://github.com/laravel/pint) - Code formatter
 - [Rector](https://getrector.org/) - Code refactoring tool
-- [PHPStan](https://phpstan.org/) - Static analysis tool
 
 ## Installation
 
@@ -83,7 +82,9 @@ $value = DB::transaction(function () {
 
 You can combine any prefix string with an integer `padLength`.
 
-### 3) Dynamic parts (e.g. year + sequence)
+`padLength` behaves like PHP `str_pad(..., STR_PAD_LEFT)`: the numeric part is left-padded with `0` up to the requested length, and if the number is already longer than that length, it is returned unchanged.
+
+### 3) Dynamic parts in the output (e.g. year + sequence)
 
 If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable pad length:
 
@@ -93,11 +94,40 @@ $value = DB::transaction(function () {
 });
 ```
 
-Note: reset behavior for prefixed dynamic values is controlled by grouping. If you want a separate counter per year, use grouping (see below).
+Note: changing the prefix or format affects only the returned string. It does not reset the counter by itself. If you want a separate counter per year, month, branch, or tenant, use grouping as well.
+
+### 3b) Custom format templates
+
+If you want a full template such as `INV/20260318/0001`, use `SequenceConfig::format()` and place a `?` where the sequence number should go:
+
+```php
+use Hatchyu\Sequence\Support\SequenceConfig;
+
+$value = DB::transaction(function () {
+    return sequence('invoice')
+        ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+        ->next();
+});
+```
+
+The `?` placeholder is replaced with the generated number after padding is applied.
+
+If you also want the counter to reset per day, combine the format with grouping:
+
+```php
+$value = DB::transaction(function () {
+    return sequence('invoice')
+        ->groupBy(date('Ymd'))
+        ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+        ->next();
+});
+```
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
 
 Sometimes you want separate counters per group of values (branch, year, tenant, etc.). The package supports grouping by multiple keys or models.
+
+Important: `groupBy()` changes which counter row is used. It does not automatically add those values to the output string. If you want the group key to also appear in the generated value, include it in the prefix or format template yourself.
 
 Example: reset sequence per branch and year:
 
@@ -165,11 +195,11 @@ DB::transaction(fn () => sequence('custom_job_code', $prefix, 2)->next());
 // JOB/2026/01, JOB/2026/02, ...
 ```
 
-Grouped by year:
+Grouped by year, with a separate counter per year:
 
 ```php
-DB::transaction(fn () => sequence('batch_code_grouped_by_year', '', 2)->groupBy(date('Y'))->next());
-// 2026[01, 02, ...], 2027[01, 02, ...]
+DB::transaction(fn () => sequence('batch_code_grouped_by_year', date('Y'), 2)->groupBy(date('Y'))->next());
+// 202601, 202602, ... then 202701, 202702, ...
 ```
 
 Multiple grouping keys (tenant, branch, year):
@@ -180,6 +210,17 @@ DB::transaction(function () {
         ->groupBy(1, 2, date('Y'))
         ->next();
 });
+```
+
+Invoice number with date in the output and a per-day reset:
+
+```php
+DB::transaction(fn () => sequence('daily_invoice')
+    ->groupBy(date('Ymd'))
+    ->config(fn (SequenceConfig $c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+    ->next()
+);
+// INV/20260318/0001, INV/20260318/0002, then INV/20260319/0001
 ```
 
 ### 5) Auto-assign on Eloquent models (`HasSequence`)
@@ -215,6 +256,22 @@ Behavior notes for trait usage:
 - Generation runs during the model `creating` hook — your create flow must be in a DB transaction, otherwise generation will throw.
 - If the column already has a non-empty value, the trait will not overwrite it.
 
+Example with a custom format on a model column:
+
+```php
+protected function sequenceColumns(): SequenceColumnCollection
+{
+    return SequenceColumnCollection::collection()
+        ->column(
+            'invoice_number',
+            SequenceConfig::create()
+                ->groupBy(date('Ymd'))
+                ->format('INV/' . date('Ymd') . '/?')
+                ->prefix('', 4)
+        );
+}
+```
+
 Multiple columns example:
 
 ```php
@@ -240,6 +297,8 @@ protected function sequenceColumns(): SequenceColumnCollection
 - Helper: `sequence(string $name, string $prefix = '', int $padLength = 0)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
+- `SequenceConfig::prefix(string $prefix, int $padLength = 0)` — configure a simple prefix + zero-padding output.
+- `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.
 - `SequenceConfig::range(int $min, ?int $max = null)` — set min/max bounds.
 - `SequenceConfig::bounded(int $min, int $max)` — range + throw on overflow.
 - `SequenceConfig::cyclingRange(int $min, int $max)` — range + cycle on overflow.
@@ -291,6 +350,7 @@ The package supports min/max ranges via `SequenceConfig::range()`, `SequenceConf
 Notes:
 - `min` is inclusive and can be `0`. `max` is inclusive and must be at least `1`.
 - If the next number exceeds the pad length, it is returned as-is (no truncation).
+- Grouping affects the counter scope, not the rendered output.
 
 Example (throw on overflow):
 
@@ -334,6 +394,13 @@ Event::listen(SequenceAssigned::class, function (SequenceAssigned $event) {
 });
 ```
 
+Event payload fields:
+
+- `name`: internal sequence name stored in the `sequences` table
+- `rawNumber`: numeric counter value before formatting
+- `sequenceNumber`: final returned string after prefix/padding/formatting
+- `groupByKey`: resolved group token used to scope the counter
+
 ## Testing
 
 The package includes comprehensive unit tests and concurrency regression tests.
@@ -347,14 +414,21 @@ Run the test suite with Pest:
 ```
 
 Key test files:
-- `tests/Unit/SequenceConfigTest.php` - Tests configuration creation, validation, and grouping
-- `tests/Unit/SequenceAssignedEventTest.php` - Tests event dispatching
+- `tests/Unit/NextSequenceTest.php` - Tests transaction enforcement, sequential increments, overflow, cycling, and custom formatting
+- `tests/Unit/SequenceConfigTest.php` - Tests configuration creation and validation
+- `tests/Unit/SequenceAssignedEventTest.php` - Tests event object construction
+- `tests/Unit/SequenceExceptionTest.php` - Tests exception code assignments
 
 Test coverage includes:
 - Configuration creation with prefix and pad length
 - Validation of negative pad length (throws exception)
 - Validation of grouping by non-persisted models (throws exception)
-- Event dispatching when sequence numbers are assigned
+- Transaction enforcement
+- Sequential increments
+- Range overflow behavior
+- Cycling behavior
+- Custom format templates
+- Event object construction
 
 ### Concurrency Testing
 
@@ -420,6 +494,7 @@ The package throws `Hatchyu\Sequence\Exceptions\SequenceException` (a `RuntimeEx
   - `CODE_MAX_TOO_SMALL` (102) — max value is less than 1
   - `CODE_MAX_LESS_THAN_MIN` (103) — max value is less than min value
   - `CODE_INVALID_MODEL_CLASS` (104) — configured model class is invalid
+  - `CODE_FORMAT_PLACEHOLDER_MISSING` (105) — format template does not contain `?`
 
 - `SequenceModelException` — invalid or unsaved models
   - `CODE_MODEL_KEY_MUST_BE_STRING` (200) — model key is not a string
@@ -457,6 +532,8 @@ try {
 
 - "Not in transaction" exception: ensure `sequence()` runs inside `DB::transaction()`.
 - Duplicate numbers under concurrency: check that your DB supports `SELECT ... FOR UPDATE` on the used engine and that transactions are used.
+- Counter did not reset for a new year/month/day: add `groupBy(...)`; changing only prefix or format does not create a new counter scope.
+- Group key not visible in the generated string: add it to the prefix or `format()` output yourself; `groupBy()` only scopes the counter.
 
 ## Development
 
@@ -473,7 +550,7 @@ try {
 ./vendor/bin/pest --coverage
 ```
 
-Note: the current test suite focuses on unit-level behavior (config validation, exceptions, and event construction). If you need end-to-end verification of DB transactions and sequence generation patterns, add integration tests in your application or introduce a Laravel test harness.
+Note: the current test suite exercises the core generation logic against SQLite and includes standalone regression scripts. For production release confidence on MySQL or PostgreSQL, it is still a good idea to run one integration pass in an application that uses your target driver.
 
 ### Regression Scripts
 
@@ -493,14 +570,11 @@ php scripts/regression_concurrency.php
 # Run Laravel Pint for code formatting
 ./vendor/bin/pint
 
-# Run strict code formatting
-./vendor/bin/pint --config=pint.strict.json
-
 # Run Rector for code refactoring
 ./vendor/bin/rector process
 
-# Run PHPStan for static analysis
-./vendor/bin/phpstan analyse
+# Run the concurrency regression script
+php scripts/regression_concurrency.php
 ```
 
 ## Contribution

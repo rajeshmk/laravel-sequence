@@ -25,6 +25,9 @@ it('assigns config exception codes', function () {
 
     $ex = SequenceConfigException::invalidModelClass('App\\Models\\Sequence');
     expect($ex->getCode())->toBe(SequenceConfigException::CODE_INVALID_MODEL_CLASS);
+
+    $ex = SequenceConfigException::formatPlaceholderMissing();
+    expect($ex->getCode())->toBe(SequenceConfigException::CODE_FORMAT_PLACEHOLDER_MISSING);
 });
 
 it('assigns model exception codes', function () {

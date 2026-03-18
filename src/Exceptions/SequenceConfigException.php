@@ -18,6 +18,8 @@ class SequenceConfigException extends SequenceException
 
     public const int CODE_INVALID_MODEL_CLASS = 104;
 
+    public const int CODE_FORMAT_PLACEHOLDER_MISSING = 105;
+
     public static function padLengthMustBeNonNegative(?Throwable $previous = null): self
     {
         return new self(__('Pad length must be 0 or greater.'), self::CODE_PAD_LENGTH_NEGATIVE, $previous);
@@ -45,5 +47,14 @@ class SequenceConfigException extends SequenceException
         return new self(__('Sequence model must be a valid Eloquent Model class. Given: :class', [
             'class' => $class,
         ]), self::CODE_INVALID_MODEL_CLASS, $previous);
+    }
+
+    public static function formatPlaceholderMissing(?Throwable $previous = null): self
+    {
+        return new self(
+            __('Sequence format must contain a "?" placeholder for the sequence number.'),
+            self::CODE_FORMAT_PLACEHOLDER_MISSING,
+            $previous,
+        );
     }
 }

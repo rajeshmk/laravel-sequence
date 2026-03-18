@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 use Hatchyu\Sequence\Exceptions\SequenceOverflowException;
 use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
-use Illuminate\Container\Container;
+use Hatchyu\Sequence\Models\Sequence;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
@@ -33,7 +34,7 @@ beforeEach(function () {
         'sequence' => [
             'table' => 'sequences',
             'connection' => null,
-            'model' => \Hatchyu\Sequence\Models\Sequence::class,
+            'model' => Sequence::class,
             'strict_mode' => true,
         ],
     ]));
@@ -86,7 +87,8 @@ afterEach(function () {
 
 it('requires a DB transaction', function () {
     expect(fn () => sequence('transaction_test')->next())
-        ->toThrow(SequenceTransactionException::class);
+        ->toThrow(SequenceTransactionException::class)
+    ;
 });
 
 it('generates sequential numbers within a transaction', function () {
@@ -94,7 +96,8 @@ it('generates sequential numbers within a transaction', function () {
     $second = app('db')->transaction(fn () => sequence('normal')->next());
 
     expect($first)->toBe('1')
-        ->and($second)->toBe('2');
+        ->and($second)->toBe('2')
+    ;
 });
 
 it('throws when max is reached', function () {
@@ -102,7 +105,8 @@ it('throws when max is reached', function () {
     app('db')->transaction(fn () => sequence('bounded')->config(fn ($c) => $c->bounded(5, 6))->next());
 
     expect(fn () => app('db')->transaction(fn () => sequence('bounded')->config(fn ($c) => $c->bounded(5, 6))->next()))
-        ->toThrow(SequenceOverflowException::class);
+        ->toThrow(SequenceOverflowException::class)
+    ;
 });
 
 it('cycles when configured', function () {
@@ -113,4 +117,14 @@ it('cycles when configured', function () {
     }
 
     expect($values)->toBe(['1', '2', '1']);
+});
+
+it('supports custom format templates with a placeholder', function () {
+    $value = app('db')->transaction(
+        fn () => sequence('invoice')
+            ->config(fn ($c) => $c->format('INV/' . date('Ymd') . '/?')->prefix('', 4))
+            ->next()
+    );
+
+    expect($value)->toBe('INV/' . date('Ymd') . '/0001');
 });

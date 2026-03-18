@@ -42,7 +42,7 @@ final readonly class NextSequence
     {
         $config = SequenceConfig::create($prefix, $padLength);
 
-        return new self(trim($name), $config, null);
+        return new self(trim($name), $config);
     }
 
     public static function createForModel(Model $model, string $column, SequenceConfig $config): static
@@ -220,7 +220,14 @@ final readonly class NextSequence
 
     private function withPrefix(int $number): string
     {
-        return $this->config->getPrefix() . $this->paddedNumber($number);
+        $formattedNumber = $this->paddedNumber($number);
+        $format = $this->config->getFormat();
+
+        if ($format !== null) {
+            return str_replace('?', $formattedNumber, $format);
+        }
+
+        return $this->config->getPrefix() . $formattedNumber;
     }
 
     private function paddedNumber(int $number): string
