@@ -16,8 +16,6 @@ final class SequenceConfig
 
     private array $groupByKeys = [];
 
-    private ?Closure $groupKeyResolver = null;
-
     private ?string $groupByToken = null;
 
     private int $min = 1;
@@ -166,29 +164,10 @@ final class SequenceConfig
         return $this->groupBy(date('Ymd'));
     }
 
-    public function resolveGroupKeyUsing(Closure $callback): self
-    {
-        $this->groupKeyResolver = $callback;
-        $this->groupByToken = null;
-
-        return $this;
-    }
-
-    public function getGroupKeyResolver(): Closure
-    {
-        if ($this->groupKeyResolver instanceof Closure) {
-            return $this->groupKeyResolver;
-        }
-
-        return fn (array $keys): string => implode('_', $keys);
-    }
-
     public function groupByToken(): string
     {
         if (! $this->groupByToken) {
-            $callback = $this->getGroupKeyResolver();
-
-            $this->groupByToken = $callback($this->groupByKeys);
+            $this->groupByToken = implode('_', $this->groupByKeys);
         }
 
         return $this->groupByToken;
