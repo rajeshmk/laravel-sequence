@@ -32,6 +32,7 @@ final readonly class NextSequence
     private function __construct(
         private string $name,
         private SequenceConfig $config,
+        private ?string $connectionName = null,
     ) {
         $this->ensureName($name);
         $this->ensureDbTransaction();
@@ -41,14 +42,14 @@ final readonly class NextSequence
     {
         $config = SequenceConfig::create($prefix, $padLength);
 
-        return new self(trim($name), $config);
+        return new self(trim($name), $config, null);
     }
 
     public static function createForModel(Model $model, string $column, SequenceConfig $config): static
     {
         $name = Str::snake($model->getTable()) . '.' . Str::snake($column);
 
-        return new self($name, $config);
+        return new self($name, $config, $model->getConnectionName());
     }
 
     public function groupBy(int|string|Model ...$groups): self
@@ -280,6 +281,8 @@ final readonly class NextSequence
         $connection = config('sequence.connection');
         if (is_string($connection) && $connection !== '') {
             $model->setConnection($connection);
+        } elseif (is_string($this->connectionName) && $this->connectionName !== '') {
+            $model->setConnection($this->connectionName);
         }
 
         return $model;

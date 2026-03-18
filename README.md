@@ -50,6 +50,8 @@ The package creates a `sequences` table which stores the current `last_number` p
 
 If you use a custom model via `config('sequence.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package writes those attributes via `forceFill()`, so `fillable` is not required.
 
+If you publish and customize the migration, keep the unique index on `(name, group_by)` and a numeric `last_number` column — those are required for correctness under concurrency.
+
 ## Usage
 
 Important: Sequence generation must run inside a DB transaction; the package will throw an exception if called outside one.
@@ -274,6 +276,8 @@ Note: `config()` is just a convenience. You can still chain `groupBy()` or other
 - The package uses `SELECT ... FOR UPDATE` to lock the row that stores `last_number` for a given `(name, group_by)`.
 - Keep transactions short to reduce lock contention.
 - If you configured a custom connection in `config/sequence.php`, make sure to use that same connection for the surrounding transaction.
+- When using `HasSequence`, the package will use the model's connection by default (unless `sequence.connection` is configured).
+- When using the `sequence()` helper, the package uses `sequence.connection` if set; otherwise it uses the default connection. Use `DB::connection('name')->transaction(...)` to match.
 - Ensure your database engine supports row-level locking in transactions (e.g., InnoDB on MySQL).
 
 ## Range and overflow
@@ -283,6 +287,10 @@ The package supports min/max ranges via `SequenceConfig::range()`, `SequenceConf
 - `range($min, $max)` sets the allowed range (inclusive). The default overflow behavior is to throw a `SequenceOverflowException` when `max` is reached.
 - `bounded($min, $max)` is a convenience wrapper that sets the range and keeps the default "fail" overflow behavior.
 - `cyclingRange($min, $max)` wraps back to `min` when `max` is reached.
+ 
+Notes:
+- `min` is inclusive and can be `0`. `max` is inclusive and must be at least `1`.
+- If the next number exceeds the pad length, it is returned as-is (no truncation).
 
 Example (throw on overflow):
 
