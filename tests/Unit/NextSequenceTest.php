@@ -248,3 +248,13 @@ it('supports convenience grouping helpers', function () {
         ->and($monthly)->toBe('01')
         ->and($daily)->toBe('01');
 });
+
+it('supports custom increment steps', function () {
+    $first = app('db')->transaction(fn () => sequence('step_test')->step(5)->next());
+    $second = app('db')->transaction(fn () => sequence('step_test')->step(5)->next());
+    $third = app('db')->transaction(fn () => sequence('step_test')->step(5)->next());
+
+    expect($first)->toBe('1')
+        ->and($second)->toBe('6')
+        ->and($third)->toBe('11');
+});

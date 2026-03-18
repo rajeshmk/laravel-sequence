@@ -322,11 +322,13 @@ protected function sequenceColumns(): SequenceColumnCollection
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
 - Call `->belongsTo(...$models)` — an expressive alias for `groupBy()` when scoping counters by parent Eloquent models.
 - Convenience helpers: `->groupByYear()`, `->groupByMonth()`, and `->groupByDay()` for common date-based counter scopes.
+- Call `->step(int $amount)` to define a custom increment step (default `1`).
 - Call `->prefix(string $prefix)` to prepend a static or dynamic string.
 - Call `->padLength(int $length)` to zero-pad the numeric part on the left.
 - Call `->format(string $format)` to use a custom output template with a `?` placeholder.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
 - `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
+- `SequenceConfig::step(int $amount)` — configure a custom increment step.
 - `SequenceConfig::prefix(string $prefix)` — configure a prefix.
 - `SequenceConfig::padLength(int $length)` — configure zero-padding for the numeric part.
 - `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.

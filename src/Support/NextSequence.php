@@ -94,6 +94,13 @@ final readonly class NextSequence
         return $this;
     }
 
+    public function step(int $step): self
+    {
+        $this->config->step($step);
+
+        return $this;
+    }
+
     public function format(string $format): self
     {
         $this->config->format($format);
@@ -221,12 +228,12 @@ final readonly class NextSequence
 
         // Unbounded sequence → simple increment
         if ($max === null) {
-            return $last + 1;
+            return $last + $this->config->getStep();
         }
 
         // Within bounds → increment
-        if ($last < $max) {
-            return $last + 1;
+        if ($last + $this->config->getStep() <= $max) {
+            return $last + $this->config->getStep();
         }
 
         // Overflow handling
