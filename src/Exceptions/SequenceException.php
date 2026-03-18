@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Exceptions;
+namespace Hatchyu\Sequence\Exceptions;
 
 use RuntimeException;
 
-class RollNumberException extends RuntimeException
+class SequenceException extends RuntimeException
 {
     // Intentionally empty: subclasses carry messages for each failure mode.
 }

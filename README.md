@@ -1,8 +1,8 @@
-# Roll Number (Laravel Package)
+# Sequence (Laravel Package)
 
-Generate sequential “roll numbers” (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and minimum length, rollover limits, and a convenient `HasRollNumber` Eloquent trait to auto-assign values on creation.
+Generate sequential numbers (for example `INV-000001`) safely from the database. Supports optional grouping (separate counters per group keys), configurable prefixes and pad length, custom format templates, min/max ranges, and a convenient `HasSequence` Eloquent trait to auto-assign values on creation.
 
-**Quick summary:** use the `roll_number()` helper inside a DB transaction to generate numbers, or add the `HasRollNumber` trait to models to auto-assign a column on `creating`.
+**Quick summary:** use the `sequence()` helper inside a DB transaction to generate numbers, or add the `HasSequence` trait to models to auto-assign a column on `creating`.
 
 ## Requirements
 
@@ -10,20 +10,12 @@ Generate sequential “roll numbers” (for example `INV-000001`) safely from th
 - Laravel: `^10 || ^11 || ^12`
 - Database: uses row-level locking (`SELECT ... FOR UPDATE`) inside transactions to ensure safe concurrent increments.
 
-### Development Requirements
-
-For development and testing:
-- [Pest](https://pestphp.com/) - PHP testing framework
-- [Laravel Pint](https://github.com/laravel/pint) - Code formatter
-- [Rector](https://getrector.org/) - Code refactoring tool
-- [PHPStan](https://phpstan.org/) - Static analysis tool
-
 ## Installation
 
 Install via Composer:
 
 ```bash
-composer require hatchyu/laravel-roll-number
+composer require hatchyu/laravel-sequence
 ```
 
 Run your migrations (the package auto-loads its migrations via the service provider):
@@ -35,25 +27,33 @@ php artisan migrate
 Optional: publish the config file if you want to customize table/connection/model:
 
 ```bash
-php artisan vendor:publish --tag=config --provider="Hatchyu\\RollNumber\\RollNumberServiceProvider"
+php artisan vendor:publish --tag=config --provider="Hatchyu\\Sequence\\SequenceServiceProvider"
 ```
 
 Optional: publish the migration if you want to customize the table name or columns:
 
 ```bash
-php artisan vendor:publish --tag=roll-number-migrations --provider="Hatchyu\\RollNumber\\RollNumberServiceProvider"
+php artisan vendor:publish --tag=sequence-migrations --provider="Hatchyu\\Sequence\\SequenceServiceProvider"
 ```
 
 ## Tables
 
-The package creates a `roll_numbers` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
+The package creates a `sequences` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
 
-If you use a custom model via `config('roll-number.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package writes those attributes via `forceFill()`, so `fillable` is not required.
+If you use a custom model via `config('sequence.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package writes those attributes via `forceFill()`, so `fillable` is not required.
+
+If you publish and customize the migration, keep the unique index on `(name, group_by)` and a numeric `last_number` column — those are required for correctness under concurrency.
 
 ## Usage
 
-Important: roll number generation must run inside a DB transaction; the package will throw an exception if called outside one.
+Important: Sequence generation must run inside a DB transaction; the package will throw an exception if called outside one.
 Use `->next()` to reserve and return the next value.
+
+### Mental model
+
+- `prefix()` and `format()` control only how the final sequence value is displayed.
+- `groupBy()` determines which counter row is used, so it controls when numbering resets.
+- `padLength()` zero-pads the numeric part on the left, similar to PHP `str_pad(..., STR_PAD_LEFT)`.
 
 ### 1) Simple sequential numbers
 
@@ -63,51 +63,117 @@ Generate an incrementing sequence ("1", "2", "3", ...):
 use Illuminate\Support\Facades\DB;
 
 $value = DB::transaction(function () {
-    return roll_number('sequence_number')->next();
+    return sequence('sequence_number')->next();
 });
 
 // returns "1", then "2", etc.
 ```
 
-### 2) Prefix and minimum length
+### 2) Prefix and pad length
 
-Provide a prefix and a minimum numeric length (padded with zeros):
-
-```php
-$value = DB::transaction(function () {
-    return roll_number('category_code', 'C', 3)->next(); // "C001"
-});
-```
-
-You can combine any prefix string with an integer `minimumLength`.
-
-### 3) Dynamic parts (e.g. year + sequence)
-
-If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable minimum length:
+Provide a prefix and a pad numeric length (padded with zeros):
 
 ```php
 $value = DB::transaction(function () {
-    return roll_number('batch_code', date('Y'), 2)->next();
+    return sequence('category_code')
+        ->prefix('C')
+        ->padLength(3)
+        ->next(); // "C001"
 });
 ```
 
-Note: rollover behavior for prefixed dynamic values is controlled by grouping. If you want a separate counter per year, use grouping (see below).
+You can combine any prefix string with an integer `padLength`.
+
+`padLength` behaves like PHP `str_pad(..., STR_PAD_LEFT)`: the numeric part is left-padded with `0` up to the requested length, and if the number is already longer than that length, it is returned unchanged.
+
+### 3) Dynamic parts in the output (e.g. year + sequence)
+
+If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable pad length:
+
+```php
+$value = DB::transaction(function () {
+    return sequence('batch_code')
+        ->prefix(date('Y'))
+        ->padLength(2)
+        ->next();
+});
+```
+
+This only prefixes the generated number with the current year. It does not create a separate counter per year.
+
+For example, if the underlying sequence keeps incrementing across years, you might see values like `202601`, `202602`, ... and later `2027100`, `2027101`, ...
+
+`prefix()` and `format()` only control how the final sequence value is displayed. They do not create a new counter or reset numbering.
+
+`groupBy()` determines which counter row is used. Use it whenever numbering should reset by year, month, tenant, branch, or any other grouping key.
+
+For common date-based scopes, you can also use the convenience helpers `groupByYear()`, `groupByMonth()`, and `groupByDay()`.
+
+If you want the number to reset for each new year, month, branch, or tenant, use grouping as well:
+
+```php
+$value = DB::transaction(function () {
+    return sequence('batch_code')
+        ->prefix(date('Y'))
+        ->padLength(2)
+        ->groupByYear()
+        ->next();
+});
+
+// 202601, 202602, ... then 202701, 202702, ...
+```
+
+### 3b) Custom format templates
+
+If you want a full template such as `INV/20260318/0001`, use `SequenceConfig::format()` and place a `?` where the sequence number should go:
+
+```php
+use Hatchyu\Sequence\Support\SequenceConfig;
+
+$value = DB::transaction(function () {
+    return sequence('invoice')
+        ->format('INV/' . date('Ymd') . '/?')
+        ->padLength(4)
+        ->next();
+});
+```
+
+The `?` placeholder is replaced with the generated number after padding is applied.
+
+Like `prefix()`, `format()` only changes how the final value is displayed. It does not create a separate counter by itself.
+
+Without grouping, the date part in the formatted output can change while the underlying counter continues increasing. For example, you might see `INV/20260318/0001`, `INV/20260318/0002`, and later `INV/20260319/0100`, `INV/20260319/0101`, ...
+
+If you also want the counter to reset per day, combine the format with grouping:
+
+```php
+$value = DB::transaction(function () {
+    return sequence('invoice')
+        ->groupByDay()
+        ->format('INV/' . date('Ymd') . '/?')
+        ->padLength(4)
+        ->next();
+});
+// INV/20260318/0001, INV/20260318/0002, then INV/20260319/0001, INV/20260319/0002, ...
+```
 
 ### 4) Grouped sequences (per parent, per branch, etc.)
 
 Sometimes you want separate counters per group of values (branch, year, tenant, etc.). The package supports grouping by multiple keys or models.
+
+Important: `groupBy()` changes which counter row is used. It does not automatically add those values to the output string. If you want the group key to also appear in the generated value, include it in the prefix or format template yourself.
 
 Example: reset sequence per branch and year:
 
 ```php
 // When generating directly with multiple group keys
 DB::transaction(function () use ($branchId, $year) {
-    return roll_number('customer_code')
+    return sequence('customer_code')
         ->groupBy($branchId, $year)
         ->next();
 });
 
-// When used via HasRollNumber, configure grouping in RollNumberConfig (example below)
+// When used via HasSequence, configure grouping in SequenceConfig (example below)
 ```
 
 #### Advanced grouping: custom group key resolver
@@ -115,13 +181,13 @@ DB::transaction(function () use ($branchId, $year) {
 If you need a custom token format (e.g., `tenantId:year:branch`), you can provide a resolver callback:
 
 ```php
-use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Hatchyu\Sequence\Support\SequenceConfig;
 
-$roll = roll_number('invoice')
-    ->config(fn (RollNumberConfig $c) =>
+$sequence = sequence('invoice')
+    ->config(function (SequenceConfig $c) use ($tenantId, $branchId) {
         $c->resolveGroupKeyUsing(fn (array $keys) => implode(':', $keys))
-          ->groupBy($tenantId, date('Y'), $branchId)
-    )
+            ->groupBy($tenantId, date('Y'), $branchId);
+    })
     ->next();
 
 // Example token: 12:2026:3
@@ -132,74 +198,65 @@ Notes:
 - You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
 - Models must exist in the database before being used for grouping.
 
-### Example patterns (from real-world usage)
+### Common recipes
 
-Simple sequence:
-
-```php
-DB::transaction(fn () => roll_number('simple_sequence')->next());
-// 1, 2, 3, ...
-```
-
-Prefixed with zero-padding:
+Yearly reset with the year shown in the output:
 
 ```php
-DB::transaction(fn () => roll_number('prefixed_category_code', 'C', 3)->next());
-// C001, C002, C003, ...
+DB::transaction(fn () => sequence('batch_code_grouped_by_year')
+    ->prefix(date('Y'))
+    ->padLength(2)
+    ->groupByYear()
+    ->next()
+);
+// 202601, 202602, ... then 202701, 202702, ...
 ```
 
-Year-prefixed numeric:
-
-```php
-DB::transaction(fn () => roll_number('cv_number_prefixed_by_year', date('Y'), 2)->next());
-// 202601, 202602, 202603, ...
-```
-
-Templated prefix:
-
-```php
-$prefix = 'JOB/' . date('Y') . '/';
-DB::transaction(fn () => roll_number('custom_job_code', $prefix, 2)->next());
-// JOB/2026/01, JOB/2026/02, ...
-```
-
-Grouped by year:
-
-```php
-DB::transaction(fn () => roll_number('batch_code_grouped_by_year', '', 2)->groupBy(date('Y'))->next());
-// 2026[01, 02, ...], 2027[01, 02, ...]
-```
-
-Multiple grouping keys (tenant, branch, year):
+Separate counters by multiple grouping keys (tenant, branch, year):
 
 ```php
 DB::transaction(function () {
-    return roll_number('invoice_tenant_branch_year_wise', '', 2)
+    return sequence('invoice_tenant_branch_year_wise')
+        ->padLength(2)
         ->groupBy(1, 2, date('Y'))
         ->next();
 });
 ```
 
-### 5) Auto-assign on Eloquent models (`HasRollNumber`)
+Invoice number with a date in the output and a per-day reset:
 
-Add the `HasRollNumber` trait to your model and provide a `sequenceColumns()` method that returns a `SequenceColumnCollection`. This supports one or many columns. Example:
+```php
+DB::transaction(fn () => sequence('daily_invoice')
+    ->groupByDay()
+    ->format('INV/' . date('Ymd') . '/?')
+    ->padLength(4)
+    ->next()
+);
+// INV/20260318/0001, INV/20260318/0002, then INV/20260319/0001
+```
+
+### 5) Auto-assign on Eloquent models (`HasSequence`)
+
+Add the `HasSequence` trait to your model and provide a `sequenceColumns()` method that returns a `SequenceColumnCollection`. This supports one or many columns. Example:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
-use Hatchyu\RollNumber\Traits\HasRollNumber;
-use Hatchyu\RollNumber\Support\RollNumberConfig;
-use Hatchyu\RollNumber\Support\SequenceColumnCollection;
+use Hatchyu\Sequence\Traits\HasSequence;
+use Hatchyu\Sequence\Support\SequenceConfig;
+use Hatchyu\Sequence\Support\SequenceColumnCollection;
 
 class CustomerProfile extends Model
 {
-    use HasRollNumber;
+    use HasSequence;
 
     protected function sequenceColumns(): SequenceColumnCollection
     {
         return SequenceColumnCollection::collection()
             ->column(
                 'customer_code',
-                RollNumberConfig::create('CU', 3)
+                SequenceConfig::create()
+                    ->prefix('CU')
+                    ->padLength(3)
                     // optional: make sequence per-branch (or per branch+year, etc.)
                     ->groupBy($this->branch_id)
             );
@@ -209,9 +266,25 @@ class CustomerProfile extends Model
 
 Behavior notes for trait usage:
 
-- The roll type name is derived from the model class + column name (used as the `name` key in `roll_numbers`).
+- The sequence type name is derived from the model class + column name (used as the `name` key in `sequences`).
 - Generation runs during the model `creating` hook — your create flow must be in a DB transaction, otherwise generation will throw.
 - If the column already has a non-empty value, the trait will not overwrite it.
+
+Example with a custom format on a model column:
+
+```php
+protected function sequenceColumns(): SequenceColumnCollection
+{
+    return SequenceColumnCollection::collection()
+        ->column(
+            'invoice_number',
+            SequenceConfig::create()
+                ->groupByDay()
+                ->format('INV/' . date('Ymd') . '/?')
+                ->padLength(4)
+        );
+}
+```
 
 Multiple columns example:
 
@@ -221,11 +294,13 @@ protected function sequenceColumns(): SequenceColumnCollection
     return SequenceColumnCollection::collection()
         ->column(
             'admission_number',
-            RollNumberConfig::create('ADM', 3)
+            SequenceConfig::create()
+                ->prefix('ADM')
+                ->padLength(3)
         )
         ->column(
-            'roll_number',
-            RollNumberConfig::create()
+            'attendance_number',
+            SequenceConfig::create()
                 ->resolveGroupKeyUsing(function () {
                     return $this->tenantId() . '_' . $this->academic_year . '_' . $this->class_id;
                 })
@@ -235,15 +310,30 @@ protected function sequenceColumns(): SequenceColumnCollection
 
 ## API reference
 
-- Helper: `roll_number(string $name, string $prefix = '', int $minimumLength = 0)` — returns a `NextRollNumber` instance.
+- Helper: `sequence(string $name)` — returns a `NextSequence` instance.
 - Call `->groupBy(...$keys)` on the returned object to scope the counter by multiple values or models.
-- Call `->config(fn (RollNumberConfig $config) => ...)` to customize the configuration (rollover limit, grouping, prefix, etc.).
-- Call `->next(): string` to reserve and return the next roll value.
+- Convenience helpers: `->groupByYear()`, `->groupByMonth()`, and `->groupByDay()` for common date-based counter scopes.
+- Call `->prefix(string $prefix)` to prepend a static or dynamic string.
+- Call `->padLength(int $length)` to zero-pad the numeric part on the left.
+- Call `->format(string $format)` to use a custom output template with a `?` placeholder.
+- Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
+- `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
+- `SequenceConfig::prefix(string $prefix)` — configure a prefix.
+- `SequenceConfig::padLength(int $length)` — configure zero-padding for the numeric part.
+- `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.
+- `SequenceConfig::range(int $min, ?int $max = null)` — set min/max bounds.
+- `SequenceConfig::bounded(int $min, int $max)` — range + throw on overflow.
+- `SequenceConfig::cyclingRange(int $min, int $max)` — range + cycle on overflow.
+- `SequenceConfig::cycle()` — wrap to min when max is reached.
+- `SequenceConfig::throwOnOverflow()` — throw when max is reached (default).
+- Call `->next(): string` to reserve and return the next sequence value.
 
 Example:
 
 ```php
-$next = roll_number('orders', 'ORD-', 6)
+$next = sequence('orders')
+    ->prefix('ORD-')
+    ->padLength(6)
     ->groupBy($customerId, date('Y'))
     ->next();
 ```
@@ -251,12 +341,13 @@ $next = roll_number('orders', 'ORD-', 6)
 Example with config callback:
 
 ```php
-use Hatchyu\RollNumber\Support\RollNumberConfig;
+use Hatchyu\Sequence\Support\SequenceConfig;
 
-$next = roll_number('rollover_test', '', 2)
-    ->config(function (RollNumberConfig $config) {
-        $config->rolloverLimit(7)
-            ->groupBy(date('Y'));
+$next = sequence('range_test')
+    ->padLength(2)
+    ->config(function (SequenceConfig $config) {
+        $config->range(1, 7)
+            ->groupByYear();
     })
     ->next();
 ```
@@ -268,34 +359,76 @@ Note: `config()` is just a convenience. You can still chain `groupBy()` or other
 - Always call generation inside `DB::transaction()`.
 - The package uses `SELECT ... FOR UPDATE` to lock the row that stores `last_number` for a given `(name, group_by)`.
 - Keep transactions short to reduce lock contention.
-- If you configured a custom connection in `config/roll-number.php`, make sure to use that same connection for the surrounding transaction.
+- If you configured a custom connection in `config/sequence.php`, make sure to use that same connection for the surrounding transaction.
+- When using `HasSequence`, the package will use the model's connection by default (unless `sequence.connection` is configured).
+- When using the `sequence()` helper, the package uses `sequence.connection` if set; otherwise it uses the default connection. Use `DB::connection('name')->transaction(...)` to match.
 - Ensure your database engine supports row-level locking in transactions (e.g., InnoDB on MySQL).
 
-## Rollover and limits
+## Range and overflow
 
-The package supports rolling over or setting limits via `RollNumberConfig` (see `->rolloverLimit()` on the config). When the limit is reached, the next number resets to `1`. Consult the config API in `src/Support/RollNumberConfig.php` for exact methods and options.
+The package supports min/max ranges via `SequenceConfig::range()`, `SequenceConfig::bounded()`, and `SequenceConfig::cyclingRange()`.
+
+- `range($min, $max)` sets the allowed range (inclusive). The default overflow behavior is to throw a `SequenceOverflowException` when `max` is reached.
+- `bounded($min, $max)` is a convenience wrapper that sets the range and keeps the default "fail" overflow behavior.
+- `cyclingRange($min, $max)` wraps back to `min` when `max` is reached.
+ 
+Notes:
+- `min` is inclusive and can be `0`. `max` is inclusive and must be at least `1`.
+- If the next number exceeds the pad length, it is returned as-is (no truncation).
+- Grouping affects the counter scope, not the rendered output.
+
+Example (throw on overflow):
+
+```php
+DB::transaction(fn () => sequence('orders')
+    ->prefix('ORD-')
+    ->padLength(4)
+    ->config(fn (SequenceConfig $c) => $c->bounded(1, 9999))
+    ->next()
+);
+// ORD-0001, ORD-0002, ... ORD-9999, then throws SequenceOverflowException
+```
+
+Example (cycle back to min):
+
+```php
+DB::transaction(fn () => sequence('sessions')
+    ->config(fn (SequenceConfig $c) => $c->cyclingRange(1, 10))
+    ->next()
+);
+// 1, 2, 3, ... 10, 1, 2, ...
+```
+
+See the error handling section below for a `SequenceOverflowException` catch example. Consult the config API in `src/Support/SequenceConfig.php` for exact methods and options.
 
 ## Customization (Config)
 
 After publishing the config file, you can customize:
 
-- `table`: The name of the roll number counters table.
-- `connection`: The database connection used by the roll number model (use the same connection for your surrounding transaction).
-- `model`: The Eloquent model class for roll numbers. Must extend `Model` and use a table with `name`, `group_by`, and `last_number` columns.
+- `table`: The name of the sequence counters table.
+- `connection`: The database connection used by the sequence model (use the same connection for your surrounding transaction).
+- `model`: The Eloquent model class for sequences. Must extend `Model` and use a table with `name`, `group_by`, and `last_number` columns.
 - `strict_mode`: When enabled (default), validates name and group key lengths and throws clear exceptions before hitting DB errors.
 
 ## Events
 
-The package dispatches a `Hatchyu\RollNumber\Events\RollNumberAssigned` event whenever a number is reserved:
+The package dispatches a `Hatchyu\Sequence\Events\SequenceAssigned` event whenever a number is reserved:
 
 ```php
-use Hatchyu\RollNumber\Events\RollNumberAssigned;
+use Hatchyu\Sequence\Events\SequenceAssigned;
 use Illuminate\Support\Facades\Event;
 
-Event::listen(RollNumberAssigned::class, function (RollNumberAssigned $event) {
+Event::listen(SequenceAssigned::class, function (SequenceAssigned $event) {
     // $event->name, $event->rawNumber, $event->sequenceNumber, $event->groupByKey
 });
 ```
+
+Event payload fields:
+
+- `name`: internal sequence name stored in the `sequences` table
+- `rawNumber`: numeric counter value before formatting
+- `sequenceNumber`: final returned string after prefix/padding/formatting
+- `groupByKey`: resolved group token used to scope the counter
 
 ## Testing
 
@@ -310,14 +443,21 @@ Run the test suite with Pest:
 ```
 
 Key test files:
-- `tests/Unit/RollNumberConfigTest.php` - Tests configuration creation, validation, and grouping
-- `tests/Unit/RollNumberAssignedEventTest.php` - Tests event dispatching
+- `tests/Unit/NextSequenceTest.php` - Tests transaction enforcement, sequential increments, overflow, cycling, and custom formatting
+- `tests/Unit/SequenceConfigTest.php` - Tests configuration creation and validation
+- `tests/Unit/SequenceAssignedEventTest.php` - Tests event object construction
+- `tests/Unit/SequenceExceptionTest.php` - Tests exception code assignments
 
 Test coverage includes:
-- Configuration creation with prefix and minimum length
-- Validation of negative minimum length (throws exception)
+- Configuration creation with prefix and pad length
+- Validation of negative pad length (throws exception)
 - Validation of grouping by non-persisted models (throws exception)
-- Event dispatching when roll numbers are assigned
+- Transaction enforcement
+- Sequential increments
+- Range overflow behavior
+- Cycling behavior
+- Custom format templates
+- Event object construction
 
 ### Concurrency Testing
 
@@ -328,13 +468,13 @@ php scripts/regression_concurrency.php
 ```
 
 This script:
-- Creates multiple worker processes that generate roll numbers simultaneously
+- Creates multiple worker processes that generate sequence numbers simultaneously
 - Verifies no duplicate numbers are generated
 - Tests the concurrency safety of the package
 
 ### Testing Best Practices
 
-- Always wrap roll number generation in `DB::transaction()` in tests
+- Always wrap sequence number generation in `DB::transaction()` in tests
 - Use database fixtures for consistent test data
 - Test both simple sequences and grouped sequences
 - Verify event dispatching in integration tests
@@ -343,74 +483,86 @@ Example test:
 
 ```php
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Hatchyu\RollNumber\Events\RollNumberAssigned;
+use Hatchyu\Sequence\Events\SequenceAssigned;
 
 uses(RefreshDatabase::class);
 
-it('generates sequential roll numbers', function () {
-    $value1 = DB::transaction(fn() => roll_number('test')->next());
-    $value2 = DB::transaction(fn() => roll_number('test')->next());
+it('generates sequential sequence numbers', function () {
+    $value1 = DB::transaction(fn() => sequence('test')->next());
+    $value2 = DB::transaction(fn() => sequence('test')->next());
 
     expect($value1)->toBe('1');
     expect($value2)->toBe('2');
 });
 
-it('dispatches roll number assigned event', function () {
+it('dispatches sequence number assigned event', function () {
     Event::fake();
 
-    DB::transaction(fn() => roll_number('test')->next());
+    DB::transaction(fn() => sequence('test')->next());
 
-    Event::assertDispatched(RollNumberAssigned::class);
+    Event::assertDispatched(SequenceAssigned::class);
 });
 ```
 
 ## Error handling & troubleshooting
 
-The package throws `Hatchyu\RollNumber\Exceptions\RollNumberException` (a `RuntimeException`) and a few grouped subclasses with specific error codes:
+The package throws `Hatchyu\Sequence\Exceptions\SequenceException` (a `RuntimeException`) and a few grouped subclasses with specific error codes:
 
-- `RollNumberValidationException` — invalid names or group-by tokens
-  - `CODE_NAME_REQUIRED` (400) — roll number name is empty
-  - `CODE_NAME_TOO_LONG` (401) — roll number name exceeds length limit
+- `SequenceValidationException` — invalid names or group-by tokens
+  - `CODE_NAME_REQUIRED` (400) — sequence name is empty
+  - `CODE_NAME_TOO_LONG` (401) — sequence name exceeds length limit
   - `CODE_GROUP_BY_TOKEN_TOO_LONG` (402) — group-by token exceeds length limit
 
-- `RollNumberTransactionException` — missing DB transaction
+- `SequenceTransactionException` — missing DB transaction
   - `CODE_TRANSACTION_NOT_INITIATED` (300) — no active transaction
   - `CODE_TRANSACTION_NOT_INITIATED_ON_CONNECTION` (301) — no active transaction on specific connection
 
-- `RollNumberConfigException` — invalid configuration values
-  - `CODE_MIN_LENGTH_NEGATIVE` (100) — minimum length is negative
-  - `CODE_ROLLOVER_LIMIT_NEGATIVE` (101) — rollover limit is negative
-  - `CODE_INVALID_MODEL_CLASS` (102) — configured model class is invalid
+- `SequenceConfigException` — invalid configuration values
+  - `CODE_PAD_LENGTH_NEGATIVE` (100) — pad length is negative
+  - `CODE_MIN_NEGATIVE` (101) — min value is negative
+  - `CODE_MAX_TOO_SMALL` (102) — max value is less than 1
+  - `CODE_MAX_LESS_THAN_MIN` (103) — max value is less than min value
+  - `CODE_INVALID_MODEL_CLASS` (104) — configured model class is invalid
+  - `CODE_FORMAT_PLACEHOLDER_MISSING` (105) — format template does not contain `?`
 
-- `RollNumberModelException` — invalid or unsaved models
+- `SequenceModelException` — invalid or unsaved models
   - `CODE_MODEL_KEY_MUST_BE_STRING` (200) — model key is not a string
   - `CODE_MODEL_MUST_BE_PERSISTED` (201) — model must be saved before grouping
+
+- `SequenceOverflowException` — max reached while overflow strategy is `FAIL`
+  - `CODE_SEQUENCE_OVERFLOW` (500) — sequence max reached
 
 You can catch either the base class or a specific subclass depending on how granular you want the handling to be. Each exception includes a specific error code for programmatic handling.
 
 Example:
 
 ```php
-use Hatchyu\RollNumber\Exceptions\RollNumberException;
-use Hatchyu\RollNumber\Exceptions\RollNumberTransactionException;
+use Hatchyu\Sequence\Exceptions\SequenceException;
+use Hatchyu\Sequence\Exceptions\SequenceOverflowException;
+use Hatchyu\Sequence\Exceptions\SequenceTransactionException;
 
 try {
-    DB::transaction(fn () => roll_number('orders')->next());
-} catch (RollNumberTransactionException $e) {
-    if ($e->getCode() === RollNumberTransactionException::CODE_TRANSACTION_NOT_INITIATED) {
+    DB::transaction(fn () => sequence('orders')->next());
+} catch (SequenceOverflowException $e) {
+    // max reached and overflow strategy is FAIL
+    throw $e;
+} catch (SequenceTransactionException $e) {
+    if ($e->getCode() === SequenceTransactionException::CODE_TRANSACTION_NOT_INITIATED) {
         // handle missing transaction specifically
     }
     throw $e;
-} catch (RollNumberException $e) {
-    // handle any other roll-number error
+} catch (SequenceException $e) {
+    // handle any other sequence error
     throw $e;
 }
 ```
 
 ### Common troubleshooting
 
-- "Not in transaction" exception: ensure `roll_number()` runs inside `DB::transaction()`.
+- "Not in transaction" exception: ensure `sequence()` runs inside `DB::transaction()`.
 - Duplicate numbers under concurrency: check that your DB supports `SELECT ... FOR UPDATE` on the used engine and that transactions are used.
+- Counter did not reset for a new year/month/day: add `groupBy(...)`; changing only prefix or format does not create a new counter scope.
+- Group key not visible in the generated string: add it to the prefix or `format()` output yourself; `groupBy()` only scopes the counter.
 
 ## Development
 
@@ -421,13 +573,13 @@ try {
 ./vendor/bin/pest
 
 # Run specific test file
-./vendor/bin/pest tests/Unit/RollNumberConfigTest.php
+./vendor/bin/pest tests/Unit/SequenceConfigTest.php
 
 # Run with coverage
 ./vendor/bin/pest --coverage
 ```
 
-Note: the current test suite focuses on unit-level behavior (config validation, exceptions, and event construction). If you need end-to-end verification of DB transactions and roll-number generation patterns, add integration tests in your application or introduce a Laravel test harness.
+Note: the current test suite exercises the core generation logic against SQLite and includes standalone regression scripts. For production release confidence on MySQL or PostgreSQL, it is still a good idea to run one integration pass in an application that uses your target driver.
 
 ### Regression Scripts
 
@@ -439,22 +591,6 @@ php scripts/regression_first_number.php
 
 # Test concurrency with multiple processes (requires pcntl extension)
 php scripts/regression_concurrency.php
-```
-
-### Code Quality
-
-```bash
-# Run Laravel Pint for code formatting
-./vendor/bin/pint
-
-# Run strict code formatting
-./vendor/bin/pint --config=pint.strict.json
-
-# Run Rector for code refactoring
-./vendor/bin/rector process
-
-# Run PHPStan for static analysis
-./vendor/bin/phpstan analyse
 ```
 
 ## Contribution

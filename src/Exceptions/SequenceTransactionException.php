@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Exceptions;
+namespace Hatchyu\Sequence\Exceptions;
 
 use Throwable;
 
-class RollNumberTransactionException extends RollNumberException
+class SequenceTransactionException extends SequenceException
 {
     public const int CODE_TRANSACTION_NOT_INITIATED = 300;
 

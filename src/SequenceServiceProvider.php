@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber;
+namespace Hatchyu\Sequence;
 
 use Illuminate\Support\ServiceProvider;
 use Override;
 
-class RollNumberServiceProvider extends ServiceProvider
+class SequenceServiceProvider extends ServiceProvider
 {
     /**
      * Bootstrap any package services.
@@ -18,18 +18,18 @@ class RollNumberServiceProvider extends ServiceProvider
             $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
             $this->publishes([
-                __DIR__ . '/../config/roll-number.php' => config_path('roll-number.php'),
+                __DIR__ . '/../config/sequence.php' => config_path('sequence.php'),
             ], 'config');
 
             $this->publishes([
-                __DIR__ . '/../database/migrations/2023_01_01_100000_create_roll_numbers.php' => database_path('migrations/2023_01_01_100000_create_roll_numbers.php'),
-            ], 'roll-number-migrations');
+                __DIR__ . '/../database/migrations/2023_01_01_100000_create_sequences.php' => database_path('migrations/2023_01_01_100000_create_sequences.php'),
+            ], 'sequence-migrations');
         }
     }
 
     #[Override]
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/roll-number.php', 'roll-number');
+        $this->mergeConfigFrom(__DIR__ . '/../config/sequence.php', 'sequence');
     }
 }

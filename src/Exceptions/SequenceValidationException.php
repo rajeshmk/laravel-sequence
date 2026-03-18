@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Hatchyu\RollNumber\Exceptions;
+namespace Hatchyu\Sequence\Exceptions;
 
 use Throwable;
 
-class RollNumberValidationException extends RollNumberException
+class SequenceValidationException extends SequenceException
 {
     public const int CODE_NAME_REQUIRED = 400;
 
@@ -16,7 +16,7 @@ class RollNumberValidationException extends RollNumberException
 
     public static function nameRequired(?Throwable $previous = null): self
     {
-        return new self(__('Name required for the roll number type.'), self::CODE_NAME_REQUIRED, $previous);
+        return new self(__('Name required for the sequence type.'), self::CODE_NAME_REQUIRED, $previous);
     }
 
     public static function nameTooLong(int $limit, ?Throwable $previous = null): self

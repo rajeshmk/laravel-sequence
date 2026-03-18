@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Hatchyu\RollNumber\Models\RollNumber;
+use Hatchyu\Sequence\Models\Sequence;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -55,7 +55,7 @@ touch($dbFile);
 bootstrapContainerAndDb($dbFile, true);
 
 // Pre-seed the counter row to avoid concurrent first-insert contention in SQLite.
-Capsule::table('roll_numbers')->insert([
+Capsule::table('sequences')->insert([
     'name' => 'concurrency_test',
     'group_by' => '',
     'last_number' => 0,
@@ -86,19 +86,21 @@ for ($i = 1; $i <= $workers; $i++) {
             while (true) {
                 try {
                     $conn->transaction(function () use ($i, $j): void {
-                        $value = roll_number('concurrency_test')->next();
+                        $value = sequence('concurrency_test')->next();
 
-                        Capsule::table('roll_results')->insert([
+                        Capsule::table('sequence_results')->insert([
                             'worker_id' => $i,
                             'iteration' => $j,
                             'value' => $value,
                         ]);
                     });
+
                     break;
                 } catch (QueryException $e) {
                     if (str_contains($e->getMessage(), 'database is locked') && $attempt < $maxAttempts) {
                         $attempt++;
                         usleep(50000 * $attempt);
+
                         continue;
                     }
 
@@ -122,7 +124,7 @@ foreach ($pids as $pid) {
 
 bootstrapContainerAndDb($dbFile, false);
 
-$results = Capsule::table('roll_results')->pluck('value')->all();
+$results = Capsule::table('sequence_results')->pluck('value')->all();
 $total = count($results);
 $unique = count(array_unique($results));
 $expectedTotal = $workers * $iterations;
@@ -134,7 +136,7 @@ if ($total !== $expectedTotal) {
 if ($unique !== $total) {
     $duplicates = array_diff_assoc($results, array_unique($results));
 
-    throw new RuntimeException("Duplicate roll numbers detected. Total: {$total}, Unique: {$unique}. Duplicates: " . implode(', ', array_unique($duplicates)));
+    throw new RuntimeException("Duplicate sequence numbers detected. Total: {$total}, Unique: {$unique}. Duplicates: " . implode(', ', array_unique($duplicates)));
 }
 
 // Test grouped concurrency
@@ -143,7 +145,7 @@ $groupedResults = [];
 for ($i = 0; $i < 50; $i++) {
     Capsule::connection()->transaction(function () use (&$groupedResults, $i): void {
         $groupId = $i % 3; // 3 different groups
-        $value = roll_number('grouped_test')->groupBy($groupId)->next();
+        $value = sequence('grouped_test')->groupBy($groupId)->next();
 
         $groupedResults[] = ['group' => $groupId, 'value' => $value];
     });
@@ -196,10 +198,10 @@ function bootstrapContainerAndDb(string $dbFile, bool $createSchema): void
     Container::setInstance($container);
     $container->instance('db', $capsule->getDatabaseManager());
     $container->instance('config', new ConfigRepository([
-        'roll-number' => [
-            'table' => 'roll_numbers',
+        'sequence' => [
+            'table' => 'sequences',
             'connection' => null,
-            'model' => RollNumber::class,
+            'model' => Sequence::class,
             'strict_mode' => true,
         ],
     ]));
@@ -209,7 +211,7 @@ function bootstrapContainerAndDb(string $dbFile, bool $createSchema): void
         return;
     }
 
-    Capsule::schema()->create('roll_numbers', function (Blueprint $table): void {
+    Capsule::schema()->create('sequences', function (Blueprint $table): void {
         $table->id();
         $table->string('name', 100);
         $table->string('group_by', 250)->default('');
@@ -219,7 +221,7 @@ function bootstrapContainerAndDb(string $dbFile, bool $createSchema): void
         $table->unique(['name', 'group_by']);
     });
 
-    Capsule::schema()->create('roll_results', function (Blueprint $table): void {
+    Capsule::schema()->create('sequence_results', function (Blueprint $table): void {
         $table->id();
         $table->unsignedInteger('worker_id');
         $table->unsignedInteger('iteration');
