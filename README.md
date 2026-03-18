@@ -184,23 +184,6 @@ DB::transaction(function () use ($branchId, $year) {
 // When used via HasSequence, configure grouping in SequenceConfig (example below)
 ```
 
-#### Advanced grouping: custom group key resolver
-
-If you need a custom token format (e.g., `tenantId:year:branch`), you can provide a resolver callback:
-
-```php
-use Hatchyu\Sequence\Support\SequenceConfig;
-
-$sequence = sequence('invoice')
-    ->config(function (SequenceConfig $c) use ($tenantId, $branchId) {
-        $c->resolveGroupKeyUsing(fn (array $keys) => implode(':', $keys))
-            ->groupBy($tenantId, date('Y'), $branchId);
-    })
-    ->next();
-
-// Example token: 12:2026:3
-```
-
 Notes:
 
 - You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
@@ -309,9 +292,7 @@ protected function sequenceColumns(): SequenceColumnCollection
         ->column(
             'attendance_number',
             SequenceConfig::create()
-                ->resolveGroupKeyUsing(function () {
-                    return $this->tenantId() . '_' . $this->academic_year . '_' . $this->class_id;
-                })
+                ->groupBy($this->tenantId(), $this->academic_year, $this->class_id)
         );
 }
 ```
