@@ -24,7 +24,7 @@ final class SequenceConfig
 
     private OverflowStrategy $overflowStrategy = OverflowStrategy::FAIL;
 
-    private ?string $format = null;
+    private Closure|string|null $format = null;
 
     private int $step = 1;
 
@@ -53,14 +53,14 @@ final class SequenceConfig
         return $this->prefix;
     }
 
-    public function format(string $format): self
+    public function format(Closure|string $format): self
     {
         $this->setFormat($format);
 
         return $this;
     }
 
-    public function getFormat(): ?string
+    public function getFormat(): Closure|string|null
     {
         return $this->format;
     }
@@ -210,8 +210,14 @@ final class SequenceConfig
         $this->padLength = $length;
     }
 
-    private function setFormat(string $format): void
+    private function setFormat(Closure|string $format): void
     {
+        if ($format instanceof Closure) {
+            $this->format = $format;
+
+            return;
+        }
+
         $format = trim($format);
 
         if (! str_contains($format, self::FORMAT_PLACEHOLDER)) {

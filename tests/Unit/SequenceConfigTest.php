@@ -46,6 +46,13 @@ it('stores a custom format template', function () {
     expect($config->getFormat())->toBe('INV/' . date('Ymd') . '/?');
 });
 
+it('stores a custom format callback', function () {
+    $formatter = fn (string $number): string => 'INV-' . $number;
+    $config = SequenceConfig::create()->format($formatter);
+
+    expect($config->getFormat())->toBe($formatter);
+});
+
 it('throws when format is missing the placeholder', function () {
     $cfg = SequenceConfig::create();
 
