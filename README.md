@@ -4,7 +4,7 @@
 [![Total Downloads](https://poser.pugx.org/hatchyu/laravel-sequence/downloads)](https://packagist.org/packages/hatchyu/laravel-sequence)
 [![License](https://poser.pugx.org/hatchyu/laravel-sequence/license)](https://packagist.org/packages/hatchyu/laravel-sequence)
 [![PHP](https://img.shields.io/badge/PHP-%5E8.3-777BB4?logo=php)](https://packagist.org/packages/hatchyu/laravel-sequence)
-[![Laravel](https://img.shields.io/badge/Laravel-10%20%7C%2011%20%7C%2012-FF2D20?logo=laravel)](https://packagist.org/packages/hatchyu/laravel-sequence)
+[![Laravel](https://img.shields.io/badge/Laravel-10%20%7C%2011%20%7C%2012%20%7C%2013-FF2D20?logo=laravel)](https://packagist.org/packages/hatchyu/laravel-sequence)
 
 > **The Problem:** Generating sequential, human-readable numbers—like `INV-0001` or `ORD-2026-001`—is surprisingly difficult in a highly concurrent Laravel application. Relying on simple database counts or `max()` queries inevitably leads to race conditions, duplicate numbers, and database query crashes.
 >
@@ -15,7 +15,7 @@
 ## Requirements
 
 - PHP: `^8.3`
-- Laravel: `^10 || ^11 || ^12`
+- Laravel: `^10 || ^11 || ^12 || ^13`
 - Database: uses row-level locking (`SELECT ... FOR UPDATE`) inside transactions to ensure safe concurrent increments.
 
 ## Installation
@@ -94,6 +94,18 @@ You can combine any prefix string with an integer `padLength`.
 
 `padLength` behaves like PHP `str_pad(..., STR_PAD_LEFT)`: the numeric part is left-padded with `0` up to the requested length, and if the number is already longer than that length, it is returned unchanged.
 
+### 2b) Custom increment step
+
+By default the package increments by `1`. If you need `1, 6, 11, ...` or any other step size, use `step()`:
+
+```php
+$first = DB::transaction(fn () => sequence('batch')->step(5)->next());  // "1"
+$second = DB::transaction(fn () => sequence('batch')->step(5)->next()); // "6"
+$third = DB::transaction(fn () => sequence('batch')->step(5)->next());  // "11"
+```
+
+The first generated value still starts from the configured minimum. The step is applied to each subsequent reservation.
+
 ### 3) Dynamic parts in the output (e.g. year + sequence)
 
 If you want codes like `202601`, `202602`, ... you can pass dynamic prefix values (for example `date('Y')`) and a suitable pad length:
@@ -148,6 +160,23 @@ $value = DB::transaction(function () {
 
 The `?` placeholder is replaced with the generated number after padding is applied.
 
+### 3c) Custom format callbacks
+
+If you need full control over the final output, `format()` also accepts a callback. The callback receives the already padded numeric portion and must return the final sequence string:
+
+```php
+use Illuminate\Support\Str;
+
+$value = DB::transaction(function () {
+    return sequence('tickets')
+        ->padLength(4)
+        ->format(fn (string $number): string => "TIC-{$number}-" . Str::random(3))
+        ->next();
+});
+```
+
+This is useful when you need dynamic suffixes, more advanced string composition, or formatting that does not fit a single `?` placeholder template.
+
 Like `prefix()`, `format()` only changes how the final value is displayed. It does not create a separate counter by itself.
 
 Without grouping, the date part in the formatted output can change while the underlying counter continues increasing. For example, you might see `INV/20260318/0001`, `INV/20260318/0002`, and later `INV/20260319/0100`, `INV/20260319/0101`, ...
@@ -188,6 +217,18 @@ Notes:
 
 - You can pass persisted Eloquent models inside `groupBy($modelA, $modelB)`.
 - Models must exist in the database before being used for grouping.
+- If you prefer a more expressive name when grouping by parent models, use `belongsTo($modelA, $modelB)`. It behaves exactly like `groupBy()`.
+
+Example with `belongsTo()`:
+
+```php
+DB::transaction(function () use ($tenant, $branch) {
+    return sequence('tenant_branch_invoice')
+        ->belongsTo($tenant, $branch)
+        ->padLength(4)
+        ->next();
+});
+```
 
 ### Common recipes
 
@@ -306,13 +347,13 @@ protected function sequenceColumns(): SequenceColumnCollection
 - Call `->step(int $amount)` to define a custom increment step (default `1`).
 - Call `->prefix(string $prefix)` to prepend a static or dynamic string.
 - Call `->padLength(int $length)` to zero-pad the numeric part on the left.
-- Call `->format(string $format)` to use a custom output template with a `?` placeholder.
+- Call `->format(string|Closure $format)` to use either a `?` placeholder template or a callback that returns the final output string.
 - Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
 - `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
 - `SequenceConfig::step(int $amount)` — configure a custom increment step.
 - `SequenceConfig::prefix(string $prefix)` — configure a prefix.
 - `SequenceConfig::padLength(int $length)` — configure zero-padding for the numeric part.
-- `SequenceConfig::format(string $format)` — configure a custom output template; the template must contain `?`, which is replaced with the padded numeric part.
+- `SequenceConfig::format(string|Closure $format)` — configure either a custom output template with `?` or a callback formatter that receives the padded numeric part.
 - `SequenceConfig::range(int $min, ?int $max = null)` — set min/max bounds.
 - `SequenceConfig::bounded(int $min, int $max)` — range + throw on overflow.
 - `SequenceConfig::cyclingRange(int $min, int $max)` — range + cycle on overflow.
@@ -446,9 +487,11 @@ Test coverage includes:
 - Validation of grouping by non-persisted models (throws exception)
 - Transaction enforcement
 - Sequential increments
+- Custom increment steps
 - Range overflow behavior
 - Cycling behavior
 - Custom format templates
+- Custom format callbacks
 - Event object construction
 
 ### Concurrency Testing

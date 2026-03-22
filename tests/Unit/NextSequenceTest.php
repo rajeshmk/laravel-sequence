@@ -10,6 +10,7 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     $dbFile = sys_get_temp_dir() . '/sequence_test_' . uniqid('', true) . '.sqlite';
@@ -76,6 +77,11 @@ beforeEach(function () {
         $table->unique(['name', 'group_by']);
     });
 
+    Capsule::schema()->create('branches', function (Blueprint $table): void {
+        $table->id();
+        $table->string('name');
+    });
+
     $this->dbFile = $dbFile;
 });
 
@@ -139,6 +145,21 @@ it('supports custom format templates with a placeholder', function () {
     );
 
     expect($value)->toBe('INV/' . date('Ymd') . '/0001');
+});
+
+it('supports custom format callbacks', function () {
+    Str::createRandomStringsUsing(fn (): string => 'XYZ');
+
+    $value = app('db')->transaction(
+        fn () => sequence('tickets')
+            ->padLength(4)
+            ->format(fn (string $number): string => 'TIC-' . $number . '-' . Str::random(3))
+            ->next()
+    );
+
+    Str::createRandomStringsNormally();
+
+    expect($value)->toBe('TIC-0001-XYZ');
 });
 
 it('does not reset the counter when only the prefix changes', function () {
@@ -247,6 +268,55 @@ it('supports convenience grouping helpers', function () {
         ->and($yearlyB)->toBe(date('Y') . '02')
         ->and($monthly)->toBe('01')
         ->and($daily)->toBe('01');
+});
+
+it('supports belongsTo as a fluent alias for model grouping', function () {
+    $branchA = new class() extends \Illuminate\Database\Eloquent\Model
+    {
+        protected $table = 'branches';
+
+        public $timestamps = false;
+
+        protected $guarded = [];
+    };
+    $branchA->forceFill(['name' => 'Branch A']);
+    $branchA->save();
+
+    $branchB = new class() extends \Illuminate\Database\Eloquent\Model
+    {
+        protected $table = 'branches';
+
+        public $timestamps = false;
+
+        protected $guarded = [];
+    };
+    $branchB->forceFill(['name' => 'Branch B']);
+    $branchB->save();
+
+    $first = app('db')->transaction(
+        fn () => sequence('branch_invoice')
+            ->belongsTo($branchA)
+            ->padLength(2)
+            ->next()
+    );
+
+    $second = app('db')->transaction(
+        fn () => sequence('branch_invoice')
+            ->belongsTo($branchA)
+            ->padLength(2)
+            ->next()
+    );
+
+    $third = app('db')->transaction(
+        fn () => sequence('branch_invoice')
+            ->belongsTo($branchB)
+            ->padLength(2)
+            ->next()
+    );
+
+    expect($first)->toBe('01')
+        ->and($second)->toBe('02')
+        ->and($third)->toBe('01');
 });
 
 it('supports custom increment steps', function () {

@@ -59,6 +59,13 @@ final readonly class NextSequence
         return $this;
     }
 
+    public function belongsTo(Model ...$models): self
+    {
+        $this->config->belongsTo(...$models);
+
+        return $this;
+    }
+
     public function groupByYear(): self
     {
         $this->config->groupByYear();
@@ -101,7 +108,7 @@ final readonly class NextSequence
         return $this;
     }
 
-    public function format(string $format): self
+    public function format(Closure|string $format): self
     {
         $this->config->format($format);
 
@@ -271,6 +278,10 @@ final readonly class NextSequence
     {
         $formattedNumber = $this->paddedNumber($number);
         $format = $this->config->getFormat();
+
+        if ($format instanceof Closure) {
+            return $format($formattedNumber);
+        }
 
         if ($format !== null) {
             return str_replace('?', $formattedNumber, $format);
