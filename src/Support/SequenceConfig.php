@@ -14,6 +14,8 @@ final class SequenceConfig
 {
     private const string FORMAT_PLACEHOLDER = '?';
 
+    private const int GROUP_BY_JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+
     private array $groupByKeys = [];
 
     private ?string $groupByToken = null;
@@ -167,7 +169,11 @@ final class SequenceConfig
     public function groupByToken(): string
     {
         if (! $this->groupByToken) {
-            $this->groupByToken = implode('_', $this->groupByKeys);
+            if ($this->groupByKeys === []) {
+                $this->groupByToken = '';
+            } else {
+                $this->groupByToken = json_encode($this->groupByKeys, self::GROUP_BY_JSON_FLAGS) ?: '';
+            }
         }
 
         return $this->groupByToken;
@@ -187,13 +193,23 @@ final class SequenceConfig
     private function addGroupKey(int|string|Model $group): void
     {
         if ($group instanceof Model) {
-            $this->validateModel($group);
-
-            $group = $group->getKey();
+            $group = $this->validatedModelKey($group);
         }
 
         $this->groupByKeys[] = (string) $group;
         $this->groupByToken = null;
+    }
+
+    private function validatedModelKey(Model $model): int|string
+    {
+        $this->validateModel($model);
+
+        $key = $model->getKey();
+        if (! is_int($key) && ! is_string($key)) {
+            throw SequenceModelException::modelKeyMustBeString();
+        }
+
+        return $key;
     }
 
     private function setPrefix(string $prefix): void
@@ -262,7 +278,8 @@ final class SequenceConfig
             throw SequenceModelException::modelMustExist();
         }
 
-        // Prevent potential issues with models that use non-string keys (e.g., composite keys).
+        // Eloquent does not natively support composite primary keys. Guard early so
+        // groupBy($model) never tries to resolve an array key name/value.
         if (! is_string($model->getKeyName())) {
             throw SequenceModelException::modelKeyMustBeString();
         }

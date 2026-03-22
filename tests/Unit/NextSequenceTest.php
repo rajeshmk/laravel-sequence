@@ -8,6 +8,7 @@ use Hatchyu\Sequence\Models\Sequence;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Str;
@@ -119,10 +120,19 @@ it('cycles when configured', function () {
     $values = [];
 
     for ($i = 0; $i < 3; $i++) {
-        $values[] = app('db')->transaction(fn () => sequence('cycling')->config(fn ($c) => $c->cyclingRange(1, 2))->next());
+        $values[] = app('db')->transaction(fn () => sequence('cycling')->cyclingRange(1, 2)->next());
     }
 
     expect($values)->toBe(['1', '2', '1']);
+});
+
+it('supports direct forwarding for bounded ranges', function () {
+    app('db')->transaction(fn () => sequence('bounded')->bounded(5, 6)->next());
+    app('db')->transaction(fn () => sequence('bounded')->bounded(5, 6)->next());
+
+    expect(fn () => app('db')->transaction(fn () => sequence('bounded')->bounded(5, 6)->next()))
+        ->toThrow(SequenceOverflowException::class)
+    ;
 });
 
 it('supports fluent prefix and pad length configuration', function () {
@@ -267,26 +277,27 @@ it('supports convenience grouping helpers', function () {
     expect($yearlyA)->toBe(date('Y') . '01')
         ->and($yearlyB)->toBe(date('Y') . '02')
         ->and($monthly)->toBe('01')
-        ->and($daily)->toBe('01');
+        ->and($daily)->toBe('01')
+    ;
 });
 
 it('supports belongsTo as a fluent alias for model grouping', function () {
-    $branchA = new class() extends \Illuminate\Database\Eloquent\Model
+    $branchA = new class() extends Model
     {
-        protected $table = 'branches';
-
         public $timestamps = false;
+
+        protected $table = 'branches';
 
         protected $guarded = [];
     };
     $branchA->forceFill(['name' => 'Branch A']);
     $branchA->save();
 
-    $branchB = new class() extends \Illuminate\Database\Eloquent\Model
+    $branchB = new class() extends Model
     {
-        protected $table = 'branches';
-
         public $timestamps = false;
+
+        protected $table = 'branches';
 
         protected $guarded = [];
     };
@@ -316,7 +327,69 @@ it('supports belongsTo as a fluent alias for model grouping', function () {
 
     expect($first)->toBe('01')
         ->and($second)->toBe('02')
-        ->and($third)->toBe('01');
+        ->and($third)->toBe('01')
+    ;
+});
+
+it('keeps distinct grouped keys isolated when values contain underscores', function () {
+    $first = app('db')->transaction(
+        fn () => sequence('underscore_groups')
+            ->groupBy('a_b', 'c')
+            ->next()
+    );
+
+    $second = app('db')->transaction(
+        fn () => sequence('underscore_groups')
+            ->groupBy('a', 'b_c')
+            ->next()
+    );
+
+    $third = app('db')->transaction(
+        fn () => sequence('underscore_groups')
+            ->groupBy('a_b', 'c')
+            ->next()
+    );
+
+    expect($first)->toBe('1')
+        ->and($second)->toBe('1')
+        ->and($third)->toBe('2')
+    ;
+});
+
+it('keeps distinct grouped keys isolated across underscore boundary edge cases', function () {
+    $pairs = [
+        [['a_', 'b'], ['a', '_b']],
+        [['a__', 'b'], ['a_', '_b']],
+        [['_', '_'], ['__', '']],
+        [['__', ''], ['', '__']],
+    ];
+
+    foreach ($pairs as $index => [$left, $right]) {
+        $sequenceName = 'underscore_boundary_groups_' . $index;
+
+        $first = app('db')->transaction(
+            fn () => sequence($sequenceName)
+                ->groupBy(...$left)
+                ->next()
+        );
+
+        $second = app('db')->transaction(
+            fn () => sequence($sequenceName)
+                ->groupBy(...$right)
+                ->next()
+        );
+
+        $third = app('db')->transaction(
+            fn () => sequence($sequenceName)
+                ->groupBy(...$left)
+                ->next()
+        );
+
+        expect($first)->toBe('1')
+            ->and($second)->toBe('1')
+            ->and($third)->toBe('2')
+        ;
+    }
 });
 
 it('supports custom increment steps', function () {
@@ -326,5 +399,15 @@ it('supports custom increment steps', function () {
 
     expect($first)->toBe('1')
         ->and($second)->toBe('6')
-        ->and($third)->toBe('11');
+        ->and($third)->toBe('11')
+    ;
+});
+
+it('supports direct forwarding for open ranges', function () {
+    $first = app('db')->transaction(fn () => sequence('range_test')->range(5)->next());
+    $second = app('db')->transaction(fn () => sequence('range_test')->range(5)->next());
+
+    expect($first)->toBe('5')
+        ->and($second)->toBe('6')
+    ;
 });

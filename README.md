@@ -1,4 +1,6 @@
-# Sequence (Laravel Package)
+# Laravel Sequence Numbers
+
+Concurrency-safe Laravel sequence numbers with database transactions, row-level locking, grouping, prefixes, and Eloquent model integration.
 
 [![Latest Stable Version](https://poser.pugx.org/hatchyu/laravel-sequence/v)](https://packagist.org/packages/hatchyu/laravel-sequence)
 [![Total Downloads](https://poser.pugx.org/hatchyu/laravel-sequence/downloads)](https://packagist.org/packages/hatchyu/laravel-sequence)
@@ -8,9 +10,34 @@
 
 > **The Problem:** Generating sequential, human-readable numbers—like `INV-0001` or `ORD-2026-001`—is surprisingly difficult in a highly concurrent Laravel application. Relying on simple database counts or `max()` queries inevitably leads to race conditions, duplicate numbers, and database query crashes.
 >
-> **The Solution:** A bulletproof, transaction-safe sequence generator. Using precise row-level database locking (`SELECT ... FOR UPDATE`), this package guarantees perfectly incremental, gapless numbers even under extreme server load. Effortlessly create formatted sequences with customized prefixes and zero-padding, isolate counters by dynamic groups (like per-tenant or per-year), and auto-assign them to your Eloquent models using a convenient `HasSequence` trait.
+> **The Solution:** A concurrency-safe sequence number generator for Laravel using database transactions and row-level locking. It guarantees perfectly incremental, gapless numbers even under extreme server load. Effortlessly create formatted sequences with customized prefixes and zero-padding, isolate counters by dynamic groups (like per-tenant or per-year), and auto-assign them to your Eloquent models using a convenient `HasSequence` trait.
 
-**Quick summary:** use the `sequence()` helper inside a DB transaction to generate numbers, or add the `HasSequence` trait to models to auto-assign a column on `creating`.
+**Quick summary:** use the `sequence()` helper inside a DB transaction to generate concurrency-safe sequence numbers, or add the `HasSequence` trait to auto-assign them on Eloquent model `creating`.
+
+**Important constraint:** This package intentionally requires a database transaction to guarantee correctness under concurrency.
+
+## How It Works
+
+- The package stores the current counter in a `sequences` table keyed by `(name, group_by)`.
+- When you call `->next()`, it locks the matching row with `SELECT ... FOR UPDATE` inside your transaction.
+- It increments `last_number` safely, then returns the formatted value with any prefix, padding, or custom format applied.
+- `groupBy()` changes which counter row is used, so you can keep separate sequences per tenant, branch, year, day, or any other scope.
+- Unlike `max() + 1` or counting rows, this approach is designed to stay correct under concurrency.
+
+## When To Use This Package
+
+- You need human-readable sequential numbers such as invoices, orders, customer codes, or batch IDs.
+- You need sequence generation to remain correct under concurrency in a Laravel application.
+- You want grouped counters such as per tenant, per branch, per year, or per day.
+- You want formatted output like prefixes, zero-padding, or custom templates while keeping the numeric counter safe.
+- You want sequence assignment integrated with Eloquent model creation through `HasSequence`.
+
+## When Not To Use This Package
+
+- You cannot wrap the create flow in a database transaction.
+- You do not need strict sequential behavior and a UUID or random identifier would work better.
+- You are fine with gaps, duplicates, or eventual consistency from approaches like `max() + 1`.
+- Your database engine or table setup does not support transaction-safe row-level locking.
 
 ## Requirements
 
@@ -46,7 +73,7 @@ php artisan vendor:publish --tag=sequence-migrations --provider="Hatchyu\\Sequen
 
 ## Tables
 
-The package creates a `sequences` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a string token generated from the configured `groupBy` values (multiple values/models are joined with `_`).
+The package creates a `sequences` table which stores the current `last_number` per `(name, group_by)` tuple. The `group_by` column is a deterministic string token generated from the configured `groupBy` values.
 
 If you use a custom model via `config('sequence.model')`, it must extend Eloquent `Model` and be backed by a table that contains `name`, `group_by`, and `last_number` columns. The package writes those attributes via `forceFill()`, so `fillable` is not required.
 
@@ -55,6 +82,7 @@ If you publish and customize the migration, keep the unique index on `(name, gro
 ## Usage
 
 Important: Sequence generation must run inside a DB transaction; the package will throw an exception if called outside one.
+This package intentionally requires a database transaction to guarantee correctness under concurrency.
 Use `->next()` to reserve and return the next value.
 
 ### Mental model
@@ -145,11 +173,9 @@ $value = DB::transaction(function () {
 
 ### 3b) Custom format templates
 
-If you want a full template such as `INV/20260318/0001`, use `SequenceConfig::format()` and place a `?` where the sequence number should go:
+If you want a full template such as `INV/20260318/0001`, use `format()` and place a `?` where the sequence number should go:
 
 ```php
-use Hatchyu\Sequence\Support\SequenceConfig;
-
 $value = DB::transaction(function () {
     return sequence('invoice')
         ->format('INV/' . date('Ymd') . '/?')
@@ -298,8 +324,9 @@ class CustomerProfile extends Model
 
 Behavior notes for trait usage:
 
-- The sequence type name is derived from the model class + column name (used as the `name` key in `sequences`).
+- The sequence type name is derived from the model table name + column name (used as the `name` key in `sequences`).
 - Generation runs during the model `creating` hook — your create flow must be in a DB transaction, otherwise generation will throw.
+- This package intentionally requires a database transaction to guarantee correctness under concurrency.
 - If the column already has a non-empty value, the trait will not overwrite it.
 
 Example with a custom format on a model column:
@@ -348,7 +375,12 @@ protected function sequenceColumns(): SequenceColumnCollection
 - Call `->prefix(string $prefix)` to prepend a static or dynamic string.
 - Call `->padLength(int $length)` to zero-pad the numeric part on the left.
 - Call `->format(string|Closure $format)` to use either a `?` placeholder template or a callback that returns the final output string.
-- Call `->config(fn (SequenceConfig $config) => ...)` to customize the configuration (min/max range, grouping, prefix, etc.).
+- Call `->range(int $min, ?int $max = null)` to set min/max bounds directly on the fluent sequence builder.
+- Call `->bounded(int $min, int $max)` to set a bounded range that throws on overflow.
+- Call `->cyclingRange(int $min, int $max)` to set a bounded range that cycles back to `min`.
+- Call `->cycle()` to wrap to `min` when `max` is reached.
+- Call `->throwOnOverflow()` to explicitly keep the default overflow behavior.
+- Call `->config(fn (SequenceConfig $config) => ...)` when you want to configure the underlying `SequenceConfig` explicitly or reuse the same style as `HasSequence`.
 - `SequenceConfig::groupByYear()` / `groupByMonth()` / `groupByDay()` — convenience helpers for date-based group scopes.
 - `SequenceConfig::step(int $amount)` — configure a custom increment step.
 - `SequenceConfig::prefix(string $prefix)` — configure a prefix.
@@ -371,6 +403,16 @@ $next = sequence('orders')
     ->next();
 ```
 
+Example with direct fluent range configuration:
+
+```php
+$next = sequence('range_test')
+    ->padLength(2)
+    ->range(1, 7)
+    ->groupByYear()
+    ->next();
+```
+
 Example with config callback:
 
 ```php
@@ -385,7 +427,7 @@ $next = sequence('range_test')
     ->next();
 ```
 
-Note: `config()` is just a convenience. You can still chain `groupBy()` or other methods before/after it.
+Note: `config()` is optional. The fluent `sequence()` builder forwards configuration methods to the underlying `SequenceConfig`, so you can chain methods like `range()`, `bounded()`, `groupBy()`, or `format()` directly. Use `config()` when you prefer an explicit callback or need to work with `SequenceConfig` itself.
 
 ## Concurrency and transactions
 
@@ -399,7 +441,7 @@ Note: `config()` is just a convenience. You can still chain `groupBy()` or other
 
 ## Range and overflow
 
-The package supports min/max ranges via `SequenceConfig::range()`, `SequenceConfig::bounded()`, and `SequenceConfig::cyclingRange()`.
+The package supports min/max ranges via `range()`, `bounded()`, and `cyclingRange()` on the fluent `sequence()` builder, or the same methods on `SequenceConfig` when configuring model sequences.
 
 - `range($min, $max)` sets the allowed range (inclusive). The default overflow behavior is to throw a `SequenceOverflowException` when `max` is reached.
 - `bounded($min, $max)` is a convenience wrapper that sets the range and keeps the default "fail" overflow behavior.
@@ -416,7 +458,7 @@ Example (throw on overflow):
 DB::transaction(fn () => sequence('orders')
     ->prefix('ORD-')
     ->padLength(4)
-    ->config(fn (SequenceConfig $c) => $c->bounded(1, 9999))
+    ->bounded(1, 9999)
     ->next()
 );
 // ORD-0001, ORD-0002, ... ORD-9999, then throws SequenceOverflowException
@@ -426,7 +468,7 @@ Example (cycle back to min):
 
 ```php
 DB::transaction(fn () => sequence('sessions')
-    ->config(fn (SequenceConfig $c) => $c->cyclingRange(1, 10))
+    ->cyclingRange(1, 10)
     ->next()
 );
 // 1, 2, 3, ... 10, 1, 2, ...
@@ -598,6 +640,28 @@ try {
 - Duplicate numbers under concurrency: check that your DB supports `SELECT ... FOR UPDATE` on the used engine and that transactions are used.
 - Counter did not reset for a new year/month/day: add `groupBy(...)`; changing only prefix or format does not create a new counter scope.
 - Group key not visible in the generated string: add it to the prefix or `format()` output yourself; `groupBy()` only scopes the counter.
+
+## FAQ
+
+### Does this package require a database transaction?
+
+Yes. This package intentionally requires a database transaction to guarantee correctness under concurrency. It will throw a `SequenceTransactionException` if sequence generation runs outside an active transaction.
+
+### Why not just use `max() + 1`?
+
+Because `max() + 1` is not safe under concurrency. Two requests can read the same current maximum and generate the same next value. This package avoids that by using row-level locking inside a transaction.
+
+### Does `prefix()` or `format()` reset the counter?
+
+No. `prefix()` and `format()` only change the rendered output. If you need separate counters per year, tenant, branch, or day, use `groupBy(...)` or the date grouping helpers.
+
+### Can I use this with Eloquent models?
+
+Yes. Add the `HasSequence` trait and return a `SequenceColumnCollection` from `sequenceColumns()`. Your model creation flow still needs to run inside a database transaction.
+
+### Will this work for per-year or per-day numbering?
+
+Yes, if you scope the counter with grouping. Use `groupByYear()`, `groupByMonth()`, `groupByDay()`, or `groupBy(...)` with your own keys.
 
 ## Development
 
