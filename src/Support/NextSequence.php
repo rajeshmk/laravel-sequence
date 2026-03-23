@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hatchyu\Sequence\Support;
 
+use BadMethodCallException;
 use Closure;
 use Hatchyu\Sequence\Enums\OverflowStrategy;
 use Hatchyu\Sequence\Events\SequenceAssigned;
@@ -18,6 +19,22 @@ use Illuminate\Support\Str;
 
 use function event;
 
+/**
+ * @method self belongsTo(Model ...$models)
+ * @method self bounded(int $min, int $max)
+ * @method self cycle()
+ * @method self cyclingRange(int $min, int $max)
+ * @method self format(Closure|string $format)
+ * @method self groupBy(int|string|Model ...$groups)
+ * @method self groupByDay()
+ * @method self groupByMonth()
+ * @method self groupByYear()
+ * @method self padLength(int $length)
+ * @method self prefix(string $prefix)
+ * @method self range(int $min, ?int $max = null)
+ * @method self step(int $step)
+ * @method self throwOnOverflow()
+ */
 final readonly class NextSequence
 {
     private const int NAME_MAX_LENGTH = 100;
@@ -38,6 +55,17 @@ final readonly class NextSequence
         $this->ensureDbTransaction();
     }
 
+    public function __call(string $method, array $arguments): mixed
+    {
+        if (! method_exists($this->config, $method)) {
+            throw new BadMethodCallException(sprintf('Method %s::%s does not exist.', self::class, $method));
+        }
+
+        $result = $this->config->{$method}(...$arguments);
+
+        return $result instanceof SequenceConfig ? $this : $result;
+    }
+
     public static function create(string $name): static
     {
         $config = SequenceConfig::create();
@@ -50,69 +78,6 @@ final readonly class NextSequence
         $name = Str::snake($model->getTable()) . '.' . Str::snake($column);
 
         return new self($name, $config, $model->getConnectionName());
-    }
-
-    public function groupBy(int|string|Model ...$groups): self
-    {
-        $this->config->groupBy(...$groups);
-
-        return $this;
-    }
-
-    public function belongsTo(Model ...$models): self
-    {
-        $this->config->belongsTo(...$models);
-
-        return $this;
-    }
-
-    public function groupByYear(): self
-    {
-        $this->config->groupByYear();
-
-        return $this;
-    }
-
-    public function groupByMonth(): self
-    {
-        $this->config->groupByMonth();
-
-        return $this;
-    }
-
-    public function groupByDay(): self
-    {
-        $this->config->groupByDay();
-
-        return $this;
-    }
-
-    public function prefix(string $prefix): self
-    {
-        $this->config->prefix($prefix);
-
-        return $this;
-    }
-
-    public function padLength(int $length): self
-    {
-        $this->config->padLength($length);
-
-        return $this;
-    }
-
-    public function step(int $step): self
-    {
-        $this->config->step($step);
-
-        return $this;
-    }
-
-    public function format(Closure|string $format): self
-    {
-        $this->config->format($format);
-
-        return $this;
     }
 
     public function config(Closure $callback): self

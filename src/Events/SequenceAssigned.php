@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hatchyu\Sequence\Events;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -18,6 +17,5 @@ final readonly class SequenceAssigned
         public int $rawNumber,
         public string $sequenceNumber,
         public ?string $groupByKey = null,
-        public ?Model $model = null,
     ) {}
 }

@@ -1,6 +1,6 @@
 {
     "name": "hatchyu/laravel-sequence",
-    "description": "Generate transaction-safe sequential numbers in Laravel with grouping, formatting, and model integration.",
+    "description": "Concurrency-safe Laravel sequence numbers using database transactions, row-level locking, grouping, formatting, and model integration.",
     "license": "MIT",
     "authors": [
         {

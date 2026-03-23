@@ -32,6 +32,24 @@ it('throws when grouping by non-persisted model', function () {
     ;
 });
 
+it('throws when grouping by model with non-scalar key value', function () {
+    $model = new class() extends Model
+    {
+        public $exists = true;
+
+        public function getKey(): mixed
+        {
+            return ['a', 'b'];
+        }
+    };
+
+    $cfg = SequenceConfig::create();
+
+    expect(fn () => $cfg->groupBy($model))
+        ->toThrow(SequenceModelException::class)
+    ;
+});
+
 it('throws when max is less than min', function () {
     $cfg = SequenceConfig::create();
 
